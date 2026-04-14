@@ -9,17 +9,16 @@ st.set_page_config(page_title="Intel Neural", layout="wide", initial_sidebar_sta
 NEWS_KEY = st.secrets.get("NEWS_API_KEY", "")
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# --- 2. THE TOTAL STEALTH UI (2026 FIX) ---
+# --- 2. THE TOTAL STEALTH UI ---
 st.markdown("""
     <style>
-    /* Kill EVERYTHING: Header, Footer, Deploy Button, and the "Running" animation */
-    header, footer, .stAppHeader, .stAppDeployButton, .stFooter, [data-testid="stHeader"], [data-testid="stFooter"], #MainMenu {
+    /* Absolute Kill of Header and Footer */
+    [data-testid="stHeader"], [data-testid="stFooter"], header, footer, .st-emotion-cache-18ni7ap {
         display: none !important;
         visibility: hidden !important;
-        height: 0 !important;
     }
     
-    /* Force content to the very top edge */
+    /* Remove the 'top gap' so it looks like a native APK */
     .stAppViewBlockContainer {
         padding-top: 0rem !important;
         padding-bottom: 0rem !important;
@@ -55,17 +54,17 @@ st.markdown("""
 # --- 3. API ENGINES ---
 def get_intel(query=None):
     headers = {"User-Agent": "Mozilla/5.0"}
-    # Using 'everything' for General news to ensure we actually get results
-    if query:
-        url = f"https://newsapi.org/v2/everything?q={query}&sortBy=relevance&apiKey={NEWS_KEY}&pageSize=15"
-    else:
-        # High-quality world news pool
-        url = f"https://newsapi.org/v2/everything?q=(world+news+OR+breaking)&domains=bbc.co.uk,reuters.com,apnews.com&sortBy=publishedAt&apiKey={NEWS_KEY}&pageSize=15"
+    # If no query, we search for 'breaking news' to ensure we get results with images
+    search_term = query if query else "breaking news"
+    url = f"https://newsapi.org/v2/everything?q={search_term}&language=en&sortBy=publishedAt&apiKey={NEWS_KEY}&pageSize=20"
     
     try:
         r = requests.get(url, headers=headers).json()
-        return r.get('articles', [])
-    except: return []
+        articles = r.get('articles', [])
+        # Filter: Only return articles that actually have images for the General feed
+        return [a for a in articles if a.get('urlToImage')]
+    except:
+        return []
 
 def call_ai(prompt, system_role):
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -78,7 +77,8 @@ def call_ai(prompt, system_role):
     try:
         res = requests.post(url, headers=headers, json=payload).json()
         return res['choices'][0]['message']['content']
-    except: return "Neural Link Timeout."
+    except:
+        return "Neural Link Timeout."
 
 # --- 4. APP INTERFACE ---
 tab1, tab2, tab3 = st.tabs(["GENERAL", "SEARCH", "DEBATE TIME"])
@@ -88,25 +88,24 @@ with tab1:
     general_news = get_intel() 
     if general_news:
         for a in general_news:
-            if a.get('urlToImage'):
-                st.markdown(f"""
-                <div class="gen-card">
-                    <img src="{a['urlToImage']}" class="gen-img">
-                    <div class="gen-content">
-                        <small style="color:#05ffa1">{a['source']['name'].upper()}</small><br>
-                        <b style="font-size:18px">{a['title']}</b>
-                    </div>
+            st.markdown(f"""
+            <div class="gen-card">
+                <img src="{a['urlToImage']}" class="gen-img">
+                <div class="gen-content">
+                    <small style="color:#05ffa1">{a['source']['name'].upper()}</small><br>
+                    <b style="font-size:18px">{a['title']}</b>
                 </div>
-                """, unsafe_allow_html=True)
+            </div>
+            """, unsafe_allow_html=True)
     else:
-        st.error("No Intel Signal. Check API Key in Secrets.")
+        st.warning("📡 Scanning for signals... Ensure NEWS_API_KEY is in Secrets.")
 
 with tab2:
     s_input = st.text_input("Investigate Subject")
     if s_input:
         with st.spinner("Aggregating Intelligence..."):
             data = get_intel(s_input)
-            context = " ".join([t['title'] for t in data[:20]])
+            context = " ".join([t['title'] for t in data[:15]])
             report = call_ai(
                 f"Deep-dive report on {s_input}: {context}",
                 "You are an elite analyst. Provide a massive, detailed, multi-paragraph report. No length limits."
