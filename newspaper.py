@@ -4,7 +4,7 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 
-# --- 1. DATABASE ---
+# --- 1. DATABASE SETUP ---
 def init_db():
     conn = sqlite3.connect('intel.db')
     c = conn.cursor()
@@ -21,15 +21,15 @@ def save_mem(u, a, t):
 
 init_db()
 
-# --- 2. CONFIG ---
+# --- 2. CONFIGURATION ---
 st.set_page_config(page_title="Intelligence News", layout="wide")
-NEWS_KEY = "434fc8e864e04c43a7e07cdbce6d8fdb"
-GROQ_KEY = "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"
+NEWS_KEY = st.secrets.get("NEWS_API_KEY", "")
+GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# --- 3. UI STYLE & SCROLL REFRESH BLOCK ---
+# --- 3. UI STYLE & SCROLL PROTECTION ---
 st.markdown("""
     <style>
-    /* Prevents the browser from refreshing when pulling down */
+    /* Blocks mobile pull-to-refresh */
     html, body {
         overscroll-behavior-y: contain !important;
         position: fixed;
@@ -44,17 +44,18 @@ st.markdown("""
     .stApp { background-color: #0d1117; color: #c9d1d9; }
     .news-card { 
         padding: 20px; border-radius: 12px; border: 1px solid #30363d; 
-        margin-bottom: 20px; background: #161b22; 
+        margin-bottom: 25px; background: #161b22; 
     }
     .source-tag {
-        background: #238636; color: white; padding: 3px 10px;
-        border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 10px;
+        background: #238636; color: white; padding: 4px 12px;
+        border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 12px;
         width: fit-content;
     }
+    img { border-radius: 8px; margin-bottom: 15px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. ENGINE ---
+# --- 4. ENGINE FUNCTIONS ---
 def get_news(q=None, s=None):
     url = "https://newsapi.org/v2/top-headlines" if not q else "https://newsapi.org/v2/everything"
     p = {"apiKey": NEWS_KEY, "language": "en", "pageSize": 12}
@@ -66,15 +67,14 @@ def get_news(q=None, s=None):
     except: return []
 
 def ask_ai_groq(user_arg, news_context):
-    # This uses Groq's Llama 3 model - it is extremely fast and reliable
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
     
     prompt = f"""
-    You are an expert news debater. 
+    Role: Expert Intelligence Debater.
     User Argument: {user_arg}
-    Real-world Context: {news_context}
-    Task: Provide a sharp, logical counter-argument in 3-4 sentences. Speak as an advanced intelligence unit.
+    Context: {news_context}
+    Task: Argue against the user with logic and facts in 3-4 sentences.
     """
     
     data = {
@@ -86,19 +86,19 @@ def ask_ai_groq(user_arg, news_context):
     try:
         response = requests.post(url, headers=headers, json=data, timeout=10)
         return response.json()['choices'][0]['message']['content']
-    except Exception as e:
-        return "Intelligence system link broken. Ensure GROQ_API_KEY is in Streamlit Secrets."
+    except:
+        return "Intelligence system link broken. Check if GROQ_API_KEY is in Streamlit Secrets."
 
-# --- 5. APP INTERFACE ---
+# --- 5. APPLICATION INTERFACE ---
 st.title("Intelligence News")
 t1, t2, t3, t4 = st.tabs(["Feed", "Search", "Debate", "History"])
 
-# --- TAB 1: FEED ---
+# --- TAB 1: NEWS FEED ---
 with t1:
-    src = st.selectbox("Agency", ["All", "bbc-news", "reuters", "the-verge", "bloomberg"])
+    src = st.selectbox("Select Agency", ["All", "bbc-news", "reuters", "the-verge", "bloomberg"])
     news = get_news(s=None if src == "All" else src)
     if news:
-        for n in news[:8]:
+        for n in news[:10]:
             st.markdown(f"<div class='news-card'><div class='source-tag'>{n['source']['name']}</div>", unsafe_allow_html=True)
             if n.get('urlToImage'): st.image(n['urlToImage'])
             st.subheader(n['title'])
@@ -108,29 +108,30 @@ with t1:
 
 # --- TAB 2: SEARCH ---
 with t2:
-    query = st.text_input("Enter Search Term")
+    query = st.text_input("Enter Topic to Investigate")
     if query:
         res = get_news(q=query)
         for r in res[:6]:
             st.markdown(f"<div class='news-card'><div class='source-tag'>{r['source']['name']}</div>", unsafe_allow_html=True)
             st.subheader(r['title'])
-            summary_txt = r.get('content') or r.get('description') or "Data restricted."
-            st.write(summary_txt[:500] + "...")
+            summary = (r.get('content') or r.get('description') or "")
+            st.write(summary[:500] + "...")
             st.markdown(f"[Read Full Intel]({r['url']})")
             st.markdown("</div>", unsafe_allow_html=True)
 
-# --- TAB 3: DEBATE ---
+# --- TAB 3: DEBATE UNIT ---
 with t3:
     st.subheader("Counter-Intel Debate")
-    topic = st.text_input("Topic")
-    arg = st.text_area("Your Argument")
+    topic = st.text_input("Topic for Debate")
+    arg = st.text_area("State Your Position")
     if st.button("Initiate Fight"):
-        with st.spinner("Analyzing arguments..."):
+        with st.spinner("Analyzing logical fallacies..."):
             ctx_news = get_news(q=topic)
-            ctx_str = ctx_news[0]['title'] if ctx_news else "Current global events"
+            ctx_str = ctx_news[0]['title'] if ctx_news else "Global Current Affairs"
             reply = ask_ai_groq(arg, ctx_str)
             st.session_state['rebuttal'] = reply
             save_mem(arg, reply, topic)
+    
     if 'rebuttal' in st.session_state:
         st.error(f"AI Response: {st.session_state['rebuttal']}")
 
@@ -140,4 +141,5 @@ with t4:
         conn = sqlite3.connect('intel.db')
         st.dataframe(pd.read_sql_query("SELECT * FROM logs ORDER BY time DESC", conn), use_container_width=True)
         conn.close()
-    except: st.write("History log is currently empty.")
+    except: 
+        st.write("No intelligence logs recorded yet.")
