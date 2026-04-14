@@ -23,23 +23,25 @@ init_db()
 
 # --- 2. CONFIGURATION ---
 st.set_page_config(page_title="Intelligence News", layout="wide")
-NEWS_KEY = st.secrets.get("NEWS_API_KEY", "")
-GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
+# Using hardcoded keys if st.secrets fails for your test
+NEWS_KEY = st.secrets.get("NEWS_API_KEY", "434fc8e864e04c43a7e07cdbce6d8fdb")
+GROQ_KEY = st.secrets.get("GROQ_API_KEY", "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")
 
-# --- 3. UI STYLE & SCROLL PROTECTION ---
+# --- 3. UI STYLE & AGGRESSIVE SCROLL FIX ---
 st.markdown("""
     <style>
-    /* Blocks mobile pull-to-refresh */
+    /* The most aggressive mobile scroll fix: Locks the background */
     html, body {
-        overscroll-behavior-y: contain !important;
+        overscroll-behavior: none !important;
+        overflow: hidden !important;
+        height: 100% !important;
         position: fixed;
-        overflow: hidden;
         width: 100%;
-        height: 100%;
     }
     [data-testid="stAppViewContainer"] {
         overflow-y: auto !important;
-        height: 100%;
+        height: 100vh !important;
+        -webkit-overflow-scrolling: touch;
     }
     .stApp { background-color: #0d1117; color: #c9d1d9; }
     .news-card { 
@@ -68,26 +70,30 @@ def get_news(q=None, s=None):
 
 def ask_ai_groq(user_arg, news_context):
     url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
+    clean_key = GROQ_KEY.strip()
     
-    prompt = f"""
-    Role: Expert Intelligence Debater.
-    User Argument: {user_arg}
-    Context: {news_context}
-    Task: Argue against the user with logic and facts in 3-4 sentences.
-    """
+    headers = {
+        "Authorization": f"Bearer {clean_key}",
+        "Content-Type": "application/json"
+    }
     
     data = {
         "model": "llama3-8b-8192",
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": [
+            {"role": "system", "content": "You are a sharp intelligence debater. Use logic and facts."},
+            {"role": "user", "content": f"Argument: {user_arg}. Context: {news_context}"}
+        ],
         "temperature": 0.7
     }
     
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
-        return response.json()['choices'][0]['message']['content']
-    except:
-        return "Intelligence system link broken. Check if GROQ_API_KEY is in Streamlit Secrets."
+        response = requests.post(url, headers=headers, json=data, timeout=15)
+        if response.status_code == 200:
+            return response.json()['choices'][0]['message']['content']
+        else:
+            return f"Error {response.status_code}: {response.text}"
+    except Exception as e:
+        return f"Connection Failed: {str(e)}"
 
 # --- 5. APPLICATION INTERFACE ---
 st.title("Intelligence News")
@@ -114,7 +120,7 @@ with t2:
         for r in res[:6]:
             st.markdown(f"<div class='news-card'><div class='source-tag'>{r['source']['name']}</div>", unsafe_allow_html=True)
             st.subheader(r['title'])
-            summary = (r.get('content') or r.get('description') or "")
+            summary = (r.get('content') or r.get('description') or "No summary available.")
             st.write(summary[:500] + "...")
             st.markdown(f"[Read Full Intel]({r['url']})")
             st.markdown("</div>", unsafe_allow_html=True)
@@ -125,12 +131,15 @@ with t3:
     topic = st.text_input("Topic for Debate")
     arg = st.text_area("State Your Position")
     if st.button("Initiate Fight"):
-        with st.spinner("Analyzing logical fallacies..."):
-            ctx_news = get_news(q=topic)
-            ctx_str = ctx_news[0]['title'] if ctx_news else "Global Current Affairs"
-            reply = ask_ai_groq(arg, ctx_str)
-            st.session_state['rebuttal'] = reply
-            save_mem(arg, reply, topic)
+        if not arg or not topic:
+            st.warning("Input required for battle.")
+        else:
+            with st.spinner("Engaging AI..."):
+                ctx_news = get_news(q=topic)
+                ctx_str = ctx_news[0]['title'] if ctx_news else "General Current Affairs"
+                reply = ask_ai_groq(arg, ctx_str)
+                st.session_state['rebuttal'] = reply
+                save_mem(arg, reply, topic)
     
     if 'rebuttal' in st.session_state:
         st.error(f"AI Response: {st.session_state['rebuttal']}")
@@ -139,7 +148,8 @@ with t3:
 with t4:
     try:
         conn = sqlite3.connect('intel.db')
-        st.dataframe(pd.read_sql_query("SELECT * FROM logs ORDER BY time DESC", conn), use_container_width=True)
+        df = pd.read_sql_query("SELECT * FROM logs ORDER BY time DESC", conn)
+        st.dataframe(df, use_container_width=True)
         conn.close()
     except: 
         st.write("No intelligence logs recorded yet.")
