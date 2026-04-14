@@ -1,173 +1,173 @@
 import streamlit as st
 import requests
+import sqlite3
+import pandas as pd
+from datetime import datetime
 
-# --- 1. CONFIGURATION ---
-st.set_page_config(page_title="THE INTELLIGENT | MIDNIGHT", layout="wide")
+# --- 1. DATABASE SETUP (Memory Feature) ---
+# This creates a local file 'user_memory.db' to store how you talk
+def init_db():
+    conn = sqlite3.connect('user_memory.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS memory 
+                 (timestamp TEXT, user_input TEXT, ai_response TEXT, topic TEXT)''')
+    conn.commit()
+    conn.close()
 
-# HIGHLIGHT: Paste your keys here
-NEWS_API_KEY = "434fc8e864e04c43a7e07cdbce6d8fdb"
-HF_TOKEN = "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" 
+def save_interaction(user_text, ai_text, topic):
+    conn = sqlite3.connect('user_memory.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO memory VALUES (?,?,?,?)", 
+              (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_text, ai_text, topic))
+    conn.commit()
+    conn.close()
 
-# --- 2. DARK MODE PROFESSIONAL STYLING ---
+def get_personality_context():
+    try:
+        conn = sqlite3.connect('user_memory.db')
+        df = pd.read_sql_query("SELECT user_input FROM memory ORDER BY timestamp DESC LIMIT 5", conn)
+        conn.close()
+        return " ".join(df['user_input'].tolist())
+    except:
+        return ""
+
+init_db()
+
+# --- 2. CONFIG & KEYS ---
+st.set_page_config(page_title="NEXUS AI", layout="wide")
+NEWS_API_KEY ="434fc8e864e04c43a7e07cdbce6d8fdb" if "NEWS_API_KEY" in st.secrets else "YOUR_NEWS_API_KEY"
+HF_TOKEN ="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" if "HF_TOKEN" in st.secrets else "YOUR_HF_TOKEN"
+
+# --- 3. COOL GRAPHIC STYLING ---
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Inter:wght@300;400;600&display=swap');
-    
-    .stApp {
-        background-color: #05070a;
-        color: #ffffff;
+    .stApp { background-color: #0b0e14; color: #e0e0e0; }
+    .nav-card {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        padding: 20px;
+        border-radius: 15px;
+        border: 1px solid #334155;
+        margin-bottom: 20px;
     }
-    
-    .main-title {
-        font-family: 'Playfair Display', serif;
-        text-align: center;
-        font-size: 72px;
-        color: #ffffff;
-        margin-bottom: 0px;
-        letter-spacing: -2px;
-    }
-    
-    .header-bar {
-        text-align: center;
-        font-family: 'Inter', sans-serif;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 3px;
-        border-top: 1px solid #1f2937;
-        border-bottom: 1px solid #1f2937;
-        padding: 10px 0;
-        margin-bottom: 40px;
-        color: #9ca3af;
-    }
-    
-    h2, h3 {
-        font-family: 'Playfair Display', serif !important;
-        color: #ffffff !important;
-        letter-spacing: -0.5px;
-    }
-    
-    .stMarkdown p {
-        font-family: 'Inter', sans-serif;
-        font-weight: 300;
-        line-height: 1.8;
-        color: #d1d5db;
-    }
-
-    .briefing-box {
-        background-color: #0f172a;
-        padding: 25px;
-        border-left: 4px solid #3b82f6;
-        margin-bottom: 35px;
-        border-radius: 0 4px 4px 0;
-    }
-    
     .stButton>button {
-        width: 100%;
-        border-radius: 0px;
-        border: 1px solid #3b82f6;
-        background-color: transparent;
-        color: #3b82f6;
-        text-transform: uppercase;
-        font-size: 13px;
-        font-weight: 600;
-        letter-spacing: 2px;
-        padding: 12px;
+        border-radius: 8px;
+        background: #3b82f6;
+        color: white;
+        font-weight: bold;
+        border: none;
         transition: 0.3s;
     }
-    
-    .stButton>button:hover {
-        background-color: #3b82f6;
-        color: #ffffff;
-        border: 1px solid #3b82f6;
-    }
-
-    hr {
-        border: 0;
-        border-top: 1px solid #1f2937;
-        margin: 30px 0;
+    .stButton>button:hover { background: #60a5fa; transform: scale(1.02); }
+    .arg-box {
+        background: #1e1b4b;
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #818cf8;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. REFINED LOGIC (Better Relevance) ---
-
-def fetch_news(search_query):
-    # Use qInTitle to ensure the topic is the MAIN focus
-    # Use sortBy=relevancy to get the biggest stories
+# --- 4. CORE ENGINES ---
+def fetch_news(query=None, source=None, mode="everything"):
+    base_url = "https://newsapi.org/v2/"
+    params = {"apiKey": NEWS_API_KEY, "language": "en"}
     
-    if not search_query or search_query in ["Global Markets", "American Politics", "British Politics", "Greek Politics"]:
-        # Presets use Top Headlines for maximum quality
-        country_map = {"American Politics": "us", "British Politics": "gb", "Greek Politics": "gr"}
-        country = country_map.get(search_query, "us")
-        url = f"https://newsapi.org/v2/top-headlines?country={country}&pageSize=12&apiKey={NEWS_API_KEY}"
-    else:
-        # Custom searches use Everything but prioritize headlines
-        url = f"https://newsapi.org/v2/everything?qInTitle={search_query}&language=en&sortBy=relevancy&pageSize=12&apiKey={NEWS_API_KEY}"
-    
+    if source: # Feature: Manual Company Selection
+        endpoint = "top-headlines"
+        params["sources"] = source
+    elif query: # Feature: Search Subject
+        endpoint = "everything"
+        params["qInTitle"] = query
+        params["sortBy"] = "relevancy"
+    else: # Feature: Analysis of all
+        endpoint = "top-headlines"
+        params["category"] = "general"
+        
     try:
-        response = requests.get(url)
-        data = response.json()
-        articles = data.get('articles', [])
-        # Filter out broken or removed results
-        return [a for a in articles if a.get('description') and a['title'] != "[Removed]"]
+        r = requests.get(base_url + endpoint, params=params)
+        return r.json().get('articles', [])
     except:
         return []
 
-def summarize_news(articles):
-    # Free model: facebook/bart-large-cnn
+def ai_engine(prompt, task="summarize"):
     API_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     
-    # Focus only on the top 5 most relevant stories for the summary
-    combined_text = " ".join([f"Topic: {a['title']}. Details: {a['description']}" for a in articles[:5]])
+    # Adding Memory Context to make arguments "Efficient"
+    personality = get_personality_context()
+    contextual_prompt = f"User style history: {personality}. Task: {task}. Content: {prompt}"
     
-    if len(combined_text) < 100:
-        return "Intelligence stream insufficient for high-level synthesis."
-
     try:
-        response = requests.post(API_URL, headers=headers, json={"inputs": combined_text})
-        result = response.json()
-        if isinstance(result, list):
-            return result[0]['summary_text']
-        return "Synthesizing data... please refresh in 5 seconds."
+        response = requests.post(API_URL, headers=headers, json={"inputs": contextual_prompt, "options": {"wait_for_model": True}})
+        res = response.json()
+        return res[0]['summary_text'] if isinstance(res, list) else "Intelligence unit processing..."
     except:
-        return "Editorial synthesis offline. View raw data below."
+        return "Connection to AI Nexus failed."
 
-# --- 4. THE INTERFACE ---
+# --- 5. UI INTERFACE ---
+st.title("🌐 NEXUS INTELLIGENCE")
+tabs = st.tabs(["📡 Live Feed", "🔍 Deep Search", "🛡️ Debate Unit", "🧠 Memory"])
 
-st.markdown("<h1 class='main-title'>THE INTELLIGENT</h1>", unsafe_allow_html=True)
-st.markdown('<div class="header-bar">DATASTREAM: ENCRYPTED | STRATEGIC INSIGHT | NO EMOJIS</div>', unsafe_allow_html=True)
-
-# Sidebar
-st.sidebar.title("INTELLIGENCE UNIT")
-user_search = st.sidebar.text_input("QUERY DATABASE", placeholder="Search: Trump, NATO, Athens...")
-
-st.sidebar.markdown("---")
-preset = st.sidebar.radio("REGIONAL DESKS", ["Global Markets", "American Politics", "British Politics", "Greek Politics"])
-
-final_query = user_search if user_search else preset
-
-if st.button("INITIATE BRIEFING"):
-    with st.spinner("FILTERING NOISE..."):
-        news_data = fetch_news(final_query)
+# --- TAB 1: LIVE FEED & COMPANY PICKER ---
+with tabs[0]:
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        st.subheader("Source Selection")
+        company = st.selectbox("Pick a Desk", ["All Sources", "bbc-news", "reuters", "the-verge", "bloomberg", "google-news"])
+        source_id = None if company == "All Sources" else company
         
-        if news_data:
-            st.markdown(f"### EXECUTIVE BRIEFING: {final_query.upper()}")
-            with st.container():
-                summary = summarize_news(news_data)
-                st.markdown(f"<div class='briefing-box'>{summary}</div>", unsafe_allow_html=True)
+    with col2:
+        articles = fetch_news(source=source_id)
+        if articles:
+            summary = ai_engine(" ".join([a['title'] for a in articles[:5]]), "Analysis of global streams")
+            st.markdown(f"<div class='nav-card'><b>AI TREND ANALYSIS:</b><br>{summary}</div>", unsafe_allow_html=True)
             
-            st.markdown("<hr>", unsafe_allow_html=True)
-            
-            cols = st.columns(2)
-            for i, art in enumerate(news_data[:10]):
-                with cols[i % 2]:
-                    st.subheader(art['title'])
-                    if art.get('urlToImage'):
-                        st.image(art['urlToImage'], use_container_width=True)
-                    st.caption(f"{art['source']['name'].upper()} • {art['publishedAt'][:10]}")
-                    st.write(art['description'])
-                    st.markdown(f"[VIEW FULL INTEL]({art['url']})")
-                    st.markdown("<br>", unsafe_allow_html=True)
+            for a in articles[:5]:
+                st.write(f"### {a['title']}")
+                st.caption(f"{a['source']['name']} | {a['publishedAt']}")
+                st.write(a['description'])
+                st.markdown(f"[Read Full Intelligence]({a['url']})")
+                st.divider()
+
+# --- TAB 2: SUBJECT SEARCH ---
+with tabs[1]:
+    query = st.text_input("Enter Subject (e.g., 'Artificial Intelligence', 'Tesla', 'SpaceX')")
+    search_mode = st.radio("Analysis Depth", ["Summary Only", "Full Report List"])
+    
+    if query:
+        results = fetch_news(query=query)
+        if search_mode == "Summary Only":
+            text = " ".join([r['title'] for r in results[:10]])
+            st.info(ai_engine(text, "Summarizing deep search results"))
         else:
-            st.error("DATABASE EMPTY: No relevant articles found for this query.")
+            for r in results[:5]:
+                st.write(f"**{r['title']}**")
+                st.write(r['description'])
+
+# --- TAB 3: DEBATE UNIT (The "Disagree" Feature) ---
+with tabs[2]:
+    st.subheader("Challenge the AI")
+    topic = st.text_input("What topic shall we debate?")
+    user_argument = st.text_area("State your position:")
+    
+    if st.button("INITIATE ARGUMENT"):
+        # AI creates a counter-argument based on news data
+        news_context = fetch_news(query=topic)
+        context_str = " ".join([n['title'] for n in news_context[:3]])
+        
+        prompt = f"The user says: {user_argument}. Use this news context: {context_str}. Argue against the user effectively."
+        ai_rebuttal = ai_engine(prompt, task="Refute and debate")
+        
+        st.markdown(f"<div class='arg-box'><b>AI REBUTTAL:</b><br>{ai_rebuttal}</div>", unsafe_allow_html=True)
+        
+        # SAVE TO MEMORY
+        save_interaction(user_argument, ai_rebuttal, topic)
+        st.success("Interaction saved to local memory. Future arguments will adapt to your style.")
+
+# --- TAB 4: MEMORY ---
+with tabs[3]:
+    st.subheader("Your Intelligence Profile")
+    st.write("The AI analyzes your past arguments to understand your logic patterns.")
+    conn = sqlite3.connect('user_memory.db')
+    history = pd.read_sql_query("SELECT * FROM memory", conn)
+    st.dataframe(history)
