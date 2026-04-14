@@ -27,19 +27,20 @@ st.set_page_config(page_title="Intelligence News", layout="wide")
 NEWS_KEY = "434fc8e864e04c43a7e07cdbce6d8fdb"
 HF_KEY = "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"
 
-# --- 3. UI STYLE & JAVASCRIPT SCROLL SHIELD ---
+# --- 3. UI STYLE & SCROLL REFRESH BLOCK ---
 st.markdown("""
-    <script>
-    // Hard-stop for mobile pull-to-refresh
-    document.body.style.overscrollBehaviorY = 'none';
-    </script>
     <style>
-    html, body, [data-testid="stAppViewContainer"] {
-        overscroll-behavior-y: none !important;
+    /* Prevents the browser from refreshing when pulling down */
+    html, body {
+        overscroll-behavior-y: contain !important;
         position: fixed;
+        overflow: hidden;
         width: 100%;
         height: 100%;
-        overflow-y: scroll !important;
+    }
+    [data-testid="stAppViewContainer"] {
+        overflow-y: auto !important;
+        height: 100%;
     }
     .stApp { background-color: #0d1117; color: #c9d1d9; }
     .news-card { 
@@ -49,6 +50,7 @@ st.markdown("""
     .source-tag {
         background: #238636; color: white; padding: 3px 10px;
         border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 10px;
+        width: fit-content;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -65,23 +67,32 @@ def get_news(q=None, s=None):
     except: return []
 
 def ask_ai(txt, task):
-    # SWITCHED TO GEMMA-2B: Faster, lighter, and more reliable for free tier
-    API_URL = "https://api-inference.huggingface.co/models/google/gemma-1.1-2b-it"
+    # Models to try in order (Fastest and least busy first)
+    models = [
+        "google/gemma-1.1-2b-it",
+        "facebook/bart-large-cnn",
+        "google/flan-t5-large"
+    ]
     headers = {"Authorization": f"Bearer {HF_KEY}"}
-    payload = {"inputs": f"Instruction: {task}. Context: {txt[:600]}", "options": {"wait_for_model": True}}
-    
-    for _ in range(3):
+    payload = {"inputs": f"Argue against this: {txt[:500]}", "options": {"wait_for_model": True}}
+
+    for model in models:
+        api_url = f"https://api-inference.huggingface.co/models/{model}"
         try:
-            response = requests.post(API_URL, headers=headers, json=payload, timeout=20)
+            # We give each model a quick 10-second window to respond
+            response = requests.post(api_url, headers=headers, json=payload, timeout=10)
             res = response.json()
-            if isinstance(res, list) and 'generated_text' in res[0]:
-                return res[0]['generated_text'].split("Response:")[-1] # Clean up output
-            elif "estimated_time" in str(res):
-                time.sleep(6)
-                continue
+            
+            if isinstance(res, list) and len(res) > 0:
+                # Handle different response formats
+                text = res[0].get('generated_text') or res[0].get('summary_text')
+                if text: return text
+            elif isinstance(res, dict) and 'generated_text' in res:
+                return res['generated_text']
         except:
-            time.sleep(2)
-    return "Intelligence Unit busy. Please try one last time."
+            continue # Try the next model if this one fails or times out
+            
+    return "All Intelligence units are currently deployed (Busy). Wait 15 seconds and tap Fight again."
 
 # --- 5. APP ---
 st.title("Intelligence News")
@@ -108,8 +119,7 @@ with t2:
         for r in res[:6]:
             st.markdown(f"<div class='news-card'><div class='source-tag'>{r['source']['name']}</div>", unsafe_allow_html=True)
             st.subheader(r['title'])
-            # Showing longer summary
-            summary_txt = r.get('content') or r.get('description') or "No data."
+            summary_txt = r.get('content') or r.get('description') or "Data restricted."
             st.write(summary_txt[:500] + "...")
             st.markdown(f"[Read Full Intel]({r['url']})")
             st.markdown("</div>", unsafe_allow_html=True)
@@ -120,10 +130,11 @@ with t3:
     topic = st.text_input("Topic")
     arg = st.text_area("Your Argument")
     if st.button("Initiate Fight"):
-        with st.spinner("AI is thinking..."):
+        with st.spinner("Connecting to Intelligence Units..."):
+            # Simplified context for speed
             ctx_news = get_news(q=topic)
-            ctx_str = " ".join([n['title'] for n in ctx_news[:2]])
-            prompt = f"Topic: {topic}. User Argument: {arg}. Real News: {ctx_str}. Argue against the user."
+            ctx_str = ctx_news[0]['title'] if ctx_news else "Global Trends"
+            prompt = f"Argument: {arg}. Context: {ctx_str}."
             reply = ask_ai(prompt, "Debate")
             st.session_state['rebuttal'] = reply
             save_mem(arg, reply, topic)
@@ -136,4 +147,4 @@ with t4:
         conn = sqlite3.connect('intel.db')
         st.dataframe(pd.read_sql_query("SELECT * FROM logs ORDER BY time DESC", conn), use_container_width=True)
         conn.close()
-    except: st.write("No history found.")
+    except: st.write("History log is empty.")
