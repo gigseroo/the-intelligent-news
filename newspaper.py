@@ -1,142 +1,142 @@
 import streamlit as st
 import requests
 import sqlite3
-import uuid
+import pandas as pd
 from datetime import datetime
 
-# --- 1. SETTINGS & DEVICE-LOCAL DATABASE ---
-st.set_page_config(page_title="Intel", layout="wide")
+# --- 1. CONFIG & API SETUP ---
+st.set_page_config(page_title="Neural Intel", layout="wide", initial_sidebar_state="collapsed")
+
 NEWS_KEY = st.secrets.get("NEWS_API_KEY", "")
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-if "device_id" not in st.session_state:
-    st.session_state.device_id = str(uuid.uuid4())
-
-def save_private_mem(u, a):
-    conn = sqlite3.connect('local_intel.db')
+# --- 2. DEVICE-LOCAL MEMORY ENGINE ---
+def init_local_brain():
+    conn = sqlite3.connect('neural_memory.db')
     c = conn.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS logs (device TEXT, time TEXT, user TEXT, ai TEXT)')
-    c.execute("INSERT INTO logs VALUES (?,?,?,?)", (st.session_state.device_id, datetime.now().strftime("%H:%M"), u, a))
+    # Stores user's argumentative style and past positions to 'learn'
+    c.execute('''CREATE TABLE IF NOT EXISTS personality 
+                 (timestamp TEXT, user_input TEXT, ai_rebuttal TEXT, topic TEXT)''')
     conn.commit()
     conn.close()
 
-# --- 2. THE UI & SCROLL LOCK ---
-st.markdown("""
+def save_to_brain(u, a, t):
+    conn = sqlite3.connect('neural_memory.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO personality VALUES (?,?,?,?)", 
+              (datetime.now().strftime("%Y-%m-%d %H:%M"), u, a, t))
+    conn.commit()
+    conn.close()
+
+def get_learned_context():
+    try:
+        conn = sqlite3.connect('neural_memory.db')
+        df = pd.read_sql_query("SELECT user_input FROM personality ORDER BY timestamp DESC LIMIT 5", conn)
+        conn.close()
+        return " ".join(df['user_input'].tolist())
+    except:
+        return ""
+
+init_local_brain()
+
+# --- 3. COOL GRAPHICS & UI CUSTOMIZATION ---
+st.markdown(f"""
     <style>
-    html, body, [data-testid="stAppViewContainer"] {
-        background-color: #050505 !important;
-        overscroll-behavior: none !important;
-        position: fixed;
-        width: 100%;
-        height: 100%;
-        overflow: hidden !important;
-    }
-
-    .scroll-area {
-        height: 70vh;
-        overflow-y: auto !important;
-        padding: 10px;
-        -webkit-overflow-scrolling: touch;
-    }
-
-    header, footer, [data-testid="stHeader"] {visibility: hidden !important;}
-
-    /* User: Minimalist Slate | AI: Emerald Neon */
-    .user-bubble {
-        align-self: flex-end;
-        background: rgba(255, 255, 255, 0.07);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        padding: 14px;
-        border-radius: 20px 20px 4px 20px;
-        margin: 8px 0 8px auto;
-        max-width: 85%;
-        color: #fff;
-        font-family: sans-serif;
-    }
-    .ai-bubble {
-        align-self: flex-start;
-        background: linear-gradient(135deg, #05ffa1, #007aff);
-        color: #000;
-        font-weight: 600;
-        padding: 14px;
-        border-radius: 20px 20px 20px 4px;
-        margin: 8px auto 8px 0;
-        max-width: 85%;
-        box-shadow: 0 4px 20px rgba(5, 255, 161, 0.2);
-    }
-
-    .intel-card {
-        background: #111;
-        padding: 15px;
-        border-radius: 12px;
-        border-left: 2px solid #05ffa1;
-        margin-bottom: 15px;
-    }
+    /* Global Styles */
+    .stApp {{ background-color: #050505; color: #e0e0e0; font-family: 'Inter', sans-serif; }}
+    [data-testid="stHeader"] {{ background: rgba(0,0,0,0); }}
     
-    /* Search Bar Styling */
-    .stTextInput>div>div>input {
-        background-color: #111 !important;
-        color: #05ffa1 !important;
-        border: 1px solid #333 !important;
-    }
+    /* Glassmorphism News Cards */
+    .news-card {{
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 15px;
+        padding: 20px;
+        margin-bottom: 15px;
+        transition: transform 0.2s;
+    }}
+    .news-card:hover {{ transform: translateY(-5px); border-color: #007aff; }}
+    
+    /* AI Chat Bubbles */
+    .user-bubble {{
+        background: #222;
+        padding: 15px;
+        border-radius: 15px 15px 2px 15px;
+        margin: 10px 0 10px auto;
+        width: fit-content;
+        max-width: 80%;
+        border: 1px solid #333;
+    }}
+    .ai-bubble {{
+        background: linear-gradient(135deg, #007aff, #7000ff);
+        padding: 15px;
+        border-radius: 15px 15px 15px 2px;
+        margin: 10px auto 10px 0;
+        width: fit-content;
+        max-width: 80%;
+        color: white;
+        box-shadow: 0 4px 15px rgba(0, 122, 255, 0.3);
+    }}
+    
+    /* Neon Accents */
+    .source-tag {{ color: #007aff; font-weight: bold; font-size: 12px; text-transform: uppercase; }}
+    .summary-box {{ 
+        background: linear-gradient(90deg, rgba(0,122,255,0.1), rgba(112,0,255,0.1));
+        border-left: 4px solid #007aff;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. ENGINE ---
-def get_intel(query=None):
+# --- 4. CORE LOGIC FUNCTIONS ---
+def fetch_news(query=None, source=None):
     headers = {"User-Agent": "Mozilla/5.0"}
-    if query:
-        url = f"https://newsapi.org/v2/everything?q={query}&apiKey={NEWS_KEY}&language=en&pageSize=12"
+    if source and source != "All":
+        url = f"https://newsapi.org/v2/top-headlines?sources={source}&apiKey={NEWS_KEY}"
+    elif query:
+        url = f"https://newsapi.org/v2/everything?q={query}&apiKey={NEWS_KEY}&pageSize=10"
     else:
-        url = f"https://newsapi.org/v2/top-headlines?apiKey={NEWS_KEY}&language=en&pageSize=12"
+        url = f"https://newsapi.org/v2/top-headlines?language=en&apiKey={NEWS_KEY}&pageSize=10"
     
     try:
         r = requests.get(url, headers=headers).json()
         return r.get('articles', [])
     except: return []
 
-def ask_neural(msgs):
+def ai_engine(prompt, context_data="", mode="debate"):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
-    data = {"model": "llama-3.1-8b-instant", "messages": msgs, "temperature": 0.6}
-    try:
-        r = requests.post(url, headers=headers, json=data, timeout=10)
-        return r.json()['choices'][0]['message']['content']
-    except: return "Neural Link Timeout."
-
-# --- 4. TABS ---
-t1, t2 = st.tabs(["FEED", "DEBATE"])
-
-with t1:
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        s_query = st.text_input("", placeholder="Search Intel...", label_visibility="collapsed")
-    with col2:
-        if st.button("🌐"): s_query = None # Reset button
-        
-    st.markdown("<div class='scroll-area'>", unsafe_allow_html=True)
-    intel = get_intel(s_query)
-    if intel:
-        for i in intel:
-            st.markdown(f"<div class='intel-card'><b>{i['title']}</b><br><small style='color:#666'>{i['source']['name']}</small></div>", unsafe_allow_html=True)
-    else:
-        st.write("No signals detected.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with t2:
-    if "messages" not in st.session_state: st.session_state.messages = []
     
-    st.markdown("<div class='scroll-area'>", unsafe_allow_html=True)
-    for m in st.session_state.messages:
-        cls = "user-bubble" if m["role"] == "user" else "ai-bubble"
-        st.markdown(f"<div class='{cls}'>{m['content']}</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    learned_style = get_learned_context()
+    
+    system_msg = "You are a high-level intelligence analyst."
+    if mode == "debate":
+        system_msg = f"Argue AGAINST the user. Be sharp. Learn from their style: {learned_style}"
+    elif mode == "summary":
+        system_msg = "Analyze these news headlines and provide a 3-sentence 'Executive Summary' of the global situation."
 
-    prompt = st.chat_input("Input Position...")
-    if prompt:
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.spinner(""):
-            ans = ask_neural([{"role": "user", "content": prompt}])
-            st.session_state.messages.append({"role": "assistant", "content": ans})
-            save_private_mem(prompt, ans)
-        st.rerun()
+    data = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": f"Context: {context_data}\n\nInput: {prompt}"}
+        ],
+        "temperature": 0.7
+    }
+    try:
+        response = requests.post(url, headers=headers, json=data).json()
+        return response['choices'][0]['message']['content']
+    except: return "Connection to Neural Net lost."
+
+# --- 5. APP INTERFACE ---
+st.title("NEURAL INTEL")
+
+tab1, tab2 = st.tabs(["SIGNAL FEED", "NEURAL DEBATE"])
+
+with tab1:
+    # Feature: Pick Company or Search
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        agency = st.selectbox("Signal Source", ["All
