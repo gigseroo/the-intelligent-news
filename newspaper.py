@@ -21,17 +21,16 @@ def save_mem(u, a, t):
 
 init_db()
 
-# --- 2. CONFIGURATION (SECRETS) ---
+# --- 2. CONFIGURATION ---
 st.set_page_config(page_title="Intelligence News", layout="wide")
 
-# This pulls the keys you just saved in the Streamlit Settings
-NEWS_KEY = st.secrets.get("NEWS_API_KEY")
-GROQ_KEY = st.secrets.get("GROQ_API_KEY")
+# Fetch keys from Streamlit Secrets
+NEWS_KEY = st.secrets.get("NEWS_API_KEY", "")
+GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 # --- 3. UI STYLE & SCROLL PROTECTION ---
 st.markdown("""
     <style>
-    /* Blocks mobile pull-to-refresh for smooth scrolling */
     html, body {
         overscroll-behavior-y: contain !important;
         position: fixed;
@@ -71,21 +70,28 @@ def get_news(q=None, s=None):
 
 def ask_ai_groq(user_arg, news_context):
     url = "https://api.groq.com/openai/v1/chat/completions"
+    
     if not GROQ_KEY:
-        return "Error: GROQ_API_KEY missing from Streamlit Secrets."
-        
+        return "Error: GROQ_API_KEY missing from Secrets vault."
+
+    # Clean the key: remove quotes, spaces, and hidden characters
+    api_token = str(GROQ_KEY).strip().replace('"', '').replace("'", "")
+
     headers = {
-        "Authorization": f"Bearer {GROQ_KEY.strip()}",
+        "Authorization": f"Bearer {api_token}",
         "Content-Type": "application/json"
     }
     
+    # Trim inputs to prevent 'Request Entity Too Large' or formatting issues
+    safe_arg = str(user_arg)[:500]
+    safe_ctx = str(news_context)[:500] if news_context else "General intelligence context."
+
     data = {
-        "model": "llama3-8b-8192",
+        "model": "llama-3.1-8b-instant",
         "messages": [
-            {"role": "system", "content": "You are a sharp intelligence debater. Be logical and concise."},
-            {"role": "user", "content": f"Argument: {user_arg}. Context: {news_context}"}
+            {"role": "user", "content": f"Argue against this: {safe_arg}. Use this context: {safe_ctx}"}
         ],
-        "temperature": 0.7
+        "temperature": 0.5
     }
     
     try:
@@ -93,20 +99,24 @@ def ask_ai_groq(user_arg, news_context):
         if response.status_code == 200:
             return response.json()['choices'][0]['message']['content']
         else:
-            return f"Error {response.status_code}: Ensure your Groq key is correct in Secrets."
+            # Catching Error 400 specifically to see the Groq server's reasoning
+            try:
+                err_detail = response.json().get('error', {}).get('message', 'Syntax Error')
+            except:
+                err_detail = response.text
+            return f"System Error {response.status_code}: {err_detail}"
     except Exception as e:
         return f"Connection Failed: {str(e)}"
 
-# --- 5. APPLICATION INTERFACE ---
+# --- 5. INTERFACE ---
 st.title("Intelligence News")
 t1, t2, t3, t4 = st.tabs(["Feed", "Search", "Debate", "History"])
 
-# --- TAB 1: NEWS FEED ---
 with t1:
-    src = st.selectbox("Select Agency", ["All", "bbc-news", "reuters", "the-verge", "bloomberg"])
+    src = st.selectbox("Agency", ["All", "bbc-news", "reuters", "the-verge", "bloomberg"])
     news = get_news(s=None if src == "All" else src)
     if news:
-        for n in news[:10]:
+        for n in news[:8]:
             st.markdown(f"<div class='news-card'><div class='source-tag'>{n['source']['name']}</div>", unsafe_allow_html=True)
             if n.get('urlToImage'): st.image(n['urlToImage'])
             st.subheader(n['title'])
@@ -114,31 +124,28 @@ with t1:
             st.markdown(f"[View Full Document]({n['url']})")
             st.markdown("</div>", unsafe_allow_html=True)
 
-# --- TAB 2: SEARCH ---
 with t2:
-    query = st.text_input("Enter Topic to Investigate")
+    query = st.text_input("Investigate Topic")
     if query:
         res = get_news(q=query)
         for r in res[:6]:
             st.markdown(f"<div class='news-card'><div class='source-tag'>{r['source']['name']}</div>", unsafe_allow_html=True)
             st.subheader(r['title'])
-            summary = (r.get('content') or r.get('description') or "No summary available.")
-            st.write(summary[:500] + "...")
+            st.write((r.get('content') or r.get('description') or "")[:500] + "...")
             st.markdown(f"[Read Full Intel]({r['url']})")
             st.markdown("</div>", unsafe_allow_html=True)
 
-# --- TAB 3: DEBATE UNIT ---
 with t3:
     st.subheader("Counter-Intel Debate")
-    topic = st.text_input("Topic for Debate")
-    arg = st.text_area("State Your Position")
+    topic = st.text_input("Debate Topic")
+    arg = st.text_area("Your Position")
     if st.button("Initiate Fight"):
-        if not arg or not topic:
-            st.warning("Position and Topic required for engagement.")
+        if not arg:
+            st.warning("Please enter an argument.")
         else:
-            with st.spinner("Processing..."):
+            with st.spinner("Engaging AI..."):
                 ctx_news = get_news(q=topic)
-                ctx_str = ctx_news[0]['title'] if ctx_news else "Global Current Affairs"
+                ctx_str = ctx_news[0]['title'] if ctx_news else "Global stability"
                 reply = ask_ai_groq(arg, ctx_str)
                 st.session_state['rebuttal'] = reply
                 save_mem(arg, reply, topic)
@@ -146,7 +153,6 @@ with t3:
     if 'rebuttal' in st.session_state:
         st.error(f"AI Response: {st.session_state['rebuttal']}")
 
-# --- TAB 4: HISTORY ---
 with t4:
     try:
         conn = sqlite3.connect('intel.db')
@@ -154,4 +160,4 @@ with t4:
         st.dataframe(df, use_container_width=True)
         conn.close()
     except: 
-        st.write("No intelligence logs recorded.")
+        st.write("Logs empty.")
