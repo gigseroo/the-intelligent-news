@@ -3,9 +3,9 @@ import requests
 import sqlite3
 import pandas as pd
 from datetime import datetime
+import time
 
-# --- 1. DATABASE SETUP (Memory Feature) ---
-# This creates a local file 'user_memory.db' to store how you talk
+# --- 1. DATABASE SETUP ---
 def init_db():
     conn = sqlite3.connect('user_memory.db')
     c = conn.cursor()
@@ -34,52 +34,51 @@ def get_personality_context():
 init_db()
 
 # --- 2. CONFIG & KEYS ---
-st.set_page_config(page_title="NEXUS AI", layout="wide")
+st.set_page_config(page_title="News", layout="wide")
+
+# It is recommended to set these in the Streamlit Cloud Secrets dashboard
 NEWS_API_KEY ="434fc8e864e04c43a7e07cdbce6d8fdb" if "NEWS_API_KEY" in st.secrets else "YOUR_NEWS_API_KEY"
 HF_TOKEN ="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" if "HF_TOKEN" in st.secrets else "YOUR_HF_TOKEN"
 
-# --- 3. COOL GRAPHIC STYLING ---
+# --- 3. CLEAN STYLING ---
 st.markdown("""
     <style>
     .stApp { background-color: #0b0e14; color: #e0e0e0; }
     .nav-card {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        background: #1e293b;
         padding: 20px;
-        border-radius: 15px;
+        border-radius: 10px;
         border: 1px solid #334155;
         margin-bottom: 20px;
     }
     .stButton>button {
-        border-radius: 8px;
+        border-radius: 4px;
         background: #3b82f6;
         color: white;
-        font-weight: bold;
         border: none;
-        transition: 0.3s;
     }
-    .stButton>button:hover { background: #60a5fa; transform: scale(1.02); }
     .arg-box {
         background: #1e1b4b;
         padding: 20px;
-        border-radius: 10px;
+        border-radius: 8px;
         border-left: 5px solid #818cf8;
     }
     </style>
     """, unsafe_allow_html=True)
 
 # --- 4. CORE ENGINES ---
-def fetch_news(query=None, source=None, mode="everything"):
+def fetch_news(query=None, source=None):
     base_url = "https://newsapi.org/v2/"
     params = {"apiKey": NEWS_API_KEY, "language": "en"}
     
-    if source: # Feature: Manual Company Selection
+    if source:
         endpoint = "top-headlines"
         params["sources"] = source
-    elif query: # Feature: Search Subject
+    elif query:
         endpoint = "everything"
         params["qInTitle"] = query
         params["sortBy"] = "relevancy"
-    else: # Feature: Analysis of all
+    else:
         endpoint = "top-headlines"
         params["category"] = "general"
         
@@ -90,84 +89,107 @@ def fetch_news(query=None, source=None, mode="everything"):
         return []
 
 def ai_engine(prompt, task="summarize"):
-    API_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"
+    # Using a lighter model for faster response times
+    API_URL = "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     
-    # Adding Memory Context to make arguments "Efficient"
     personality = get_personality_context()
-    contextual_prompt = f"User style history: {personality}. Task: {task}. Content: {prompt}"
+    contextual_prompt = f"Style history: {personality}. Task: {task}. Content: {prompt[:600]}"
     
-    try:
-        response = requests.post(API_URL, headers=headers, json={"inputs": contextual_prompt, "options": {"wait_for_model": True}})
-        res = response.json()
-        return res[0]['summary_text'] if isinstance(res, list) else "Intelligence unit processing..."
-    except:
-        return "Connection to AI Nexus failed."
+    for attempt in range(3):
+        try:
+            response = requests.post(
+                API_URL, 
+                headers=headers, 
+                json={"inputs": contextual_prompt, "options": {"wait_for_model": True}},
+                timeout=25
+            )
+            res = response.json()
+            
+            if isinstance(res, dict) and "estimated_time" in res:
+                st.info(f"System warming up... remaining: {round(res['estimated_time'], 1)}s")
+                time.sleep(5)
+                continue
+                
+            if isinstance(res, list) and len(res) > 0:
+                return res[0]['summary_text']
+            
+            return "Intelligence processed. Please refresh to view."
+            
+        except:
+            if attempt < 2:
+                time.sleep(2)
+                continue
+            return "Connection timeout. The server is busy. Please try again."
+            
+    return "Intelligence unit unresponsive."
 
 # --- 5. UI INTERFACE ---
-st.title("🌐 NEXUS INTELLIGENCE")
-tabs = st.tabs(["📡 Live Feed", "🔍 Deep Search", "🛡️ Debate Unit", "🧠 Memory"])
+st.title("Nexus Intelligence News")
+tabs = st.tabs(["Live Feed", "Deep Search", "Debate Unit", "Memory"])
 
-# --- TAB 1: LIVE FEED & COMPANY PICKER ---
+# --- TAB 1: LIVE FEED ---
 with tabs[0]:
     col1, col2 = st.columns([1, 3])
     with col1:
         st.subheader("Source Selection")
-        company = st.selectbox("Pick a Desk", ["All Sources", "bbc-news", "reuters", "the-verge", "bloomberg", "google-news"])
+        company = st.selectbox("Select Agency", ["All Sources", "bbc-news", "reuters", "the-verge", "bloomberg", "google-news"])
         source_id = None if company == "All Sources" else company
         
     with col2:
         articles = fetch_news(source=source_id)
         if articles:
-            summary = ai_engine(" ".join([a['title'] for a in articles[:5]]), "Analysis of global streams")
-            st.markdown(f"<div class='nav-card'><b>AI TREND ANALYSIS:</b><br>{summary}</div>", unsafe_allow_html=True)
+            # Create a combined summary of the top headlines
+            headline_blob = " ".join([a['title'] for a in articles[:5]])
+            summary = ai_engine(headline_blob, "General Analysis")
+            st.markdown(f"<div class='nav-card'><b>Executive Summary:</b><br>{summary}</div>", unsafe_allow_html=True)
             
             for a in articles[:5]:
                 st.write(f"### {a['title']}")
                 st.caption(f"{a['source']['name']} | {a['publishedAt']}")
                 st.write(a['description'])
-                st.markdown(f"[Read Full Intelligence]({a['url']})")
+                st.markdown(f"[View Document]({a['url']})")
                 st.divider()
 
-# --- TAB 2: SUBJECT SEARCH ---
+# --- TAB 2: DEEP SEARCH ---
 with tabs[1]:
-    query = st.text_input("Enter Subject (e.g., 'Artificial Intelligence', 'Tesla', 'SpaceX')")
-    search_mode = st.radio("Analysis Depth", ["Summary Only", "Full Report List"])
+    query = st.text_input("Search Subject")
+    search_mode = st.radio("Intelligence Depth", ["Summary Only", "Full Report List"])
     
     if query:
         results = fetch_news(query=query)
         if search_mode == "Summary Only":
             text = " ".join([r['title'] for r in results[:10]])
-            st.info(ai_engine(text, "Summarizing deep search results"))
+            st.info(ai_engine(text, "Search Result Summary"))
         else:
             for r in results[:5]:
                 st.write(f"**{r['title']}**")
                 st.write(r['description'])
 
-# --- TAB 3: DEBATE UNIT (The "Disagree" Feature) ---
+# --- TAB 3: DEBATE UNIT ---
 with tabs[2]:
-    st.subheader("Challenge the AI")
-    topic = st.text_input("What topic shall we debate?")
-    user_argument = st.text_area("State your position:")
+    st.subheader("Counter-Intelligence Debate")
+    topic = st.text_input("Debate Topic")
+    user_argument = st.text_area("Your Position")
     
-    if st.button("INITIATE ARGUMENT"):
-        # AI creates a counter-argument based on news data
+    if st.button("Initiate Debate"):
         news_context = fetch_news(query=topic)
         context_str = " ".join([n['title'] for n in news_context[:3]])
         
-        prompt = f"The user says: {user_argument}. Use this news context: {context_str}. Argue against the user effectively."
-        ai_rebuttal = ai_engine(prompt, task="Refute and debate")
+        prompt = f"User argues: {user_argument}. Context: {context_str}. Provide a logical counter-argument."
+        ai_rebuttal = ai_engine(prompt, task="Debate")
         
-        st.markdown(f"<div class='arg-box'><b>AI REBUTTAL:</b><br>{ai_rebuttal}</div>", unsafe_allow_html=True)
-        
-        # SAVE TO MEMORY
+        st.markdown(f"<div class='arg-box'><b>AI Rebuttal:</b><br>{ai_rebuttal}</div>", unsafe_allow_html=True)
         save_interaction(user_argument, ai_rebuttal, topic)
-        st.success("Interaction saved to local memory. Future arguments will adapt to your style.")
 
 # --- TAB 4: MEMORY ---
 with tabs[3]:
-    st.subheader("Your Intelligence Profile")
-    st.write("The AI analyzes your past arguments to understand your logic patterns.")
-    conn = sqlite3.connect('user_memory.db')
-    history = pd.read_sql_query("SELECT * FROM memory", conn)
-    st.dataframe(history)
+    st.subheader("Stored Intelligence Patterns")
+    st.write("Reviewing saved logic and speech patterns.")
+    try:
+        conn = sqlite3.connect('user_memory.db')
+        history = pd.read_sql_query("SELECT * FROM memory", conn)
+        st.dataframe(history)
+        conn.close()
+    except:
+        st.write("Memory logs currently empty.")
