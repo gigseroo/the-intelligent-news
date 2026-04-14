@@ -3,7 +3,6 @@ import requests
 import sqlite3
 import pandas as pd
 from datetime import datetime
-import time
 
 # --- 1. DATABASE ---
 def init_db():
@@ -25,7 +24,7 @@ init_db()
 # --- 2. CONFIG ---
 st.set_page_config(page_title="Intelligence News", layout="wide")
 NEWS_KEY = "434fc8e864e04c43a7e07cdbce6d8fdb"
-HF_KEY = "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"
+GROQ_KEY = "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"
 
 # --- 3. UI STYLE & SCROLL REFRESH BLOCK ---
 st.markdown("""
@@ -66,35 +65,31 @@ def get_news(q=None, s=None):
         return r.get('articles', [])
     except: return []
 
-def ask_ai(txt, task):
-    # Models to try in order (Fastest and least busy first)
-    models = [
-        "google/gemma-1.1-2b-it",
-        "facebook/bart-large-cnn",
-        "google/flan-t5-large"
-    ]
-    headers = {"Authorization": f"Bearer {HF_KEY}"}
-    payload = {"inputs": f"Argue against this: {txt[:500]}", "options": {"wait_for_model": True}}
+def ask_ai_groq(user_arg, news_context):
+    # This uses Groq's Llama 3 model - it is extremely fast and reliable
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
+    
+    prompt = f"""
+    You are an expert news debater. 
+    User Argument: {user_arg}
+    Real-world Context: {news_context}
+    Task: Provide a sharp, logical counter-argument in 3-4 sentences. Speak as an advanced intelligence unit.
+    """
+    
+    data = {
+        "model": "llama3-8b-8192",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        return response.json()['choices'][0]['message']['content']
+    except Exception as e:
+        return "Intelligence system link broken. Ensure GROQ_API_KEY is in Streamlit Secrets."
 
-    for model in models:
-        api_url = f"https://api-inference.huggingface.co/models/{model}"
-        try:
-            # We give each model a quick 10-second window to respond
-            response = requests.post(api_url, headers=headers, json=payload, timeout=10)
-            res = response.json()
-            
-            if isinstance(res, list) and len(res) > 0:
-                # Handle different response formats
-                text = res[0].get('generated_text') or res[0].get('summary_text')
-                if text: return text
-            elif isinstance(res, dict) and 'generated_text' in res:
-                return res['generated_text']
-        except:
-            continue # Try the next model if this one fails or times out
-            
-    return "All Intelligence units are currently deployed (Busy). Wait 15 seconds and tap Fight again."
-
-# --- 5. APP ---
+# --- 5. APP INTERFACE ---
 st.title("Intelligence News")
 t1, t2, t3, t4 = st.tabs(["Feed", "Search", "Debate", "History"])
 
@@ -130,12 +125,10 @@ with t3:
     topic = st.text_input("Topic")
     arg = st.text_area("Your Argument")
     if st.button("Initiate Fight"):
-        with st.spinner("Connecting to Intelligence Units..."):
-            # Simplified context for speed
+        with st.spinner("Analyzing arguments..."):
             ctx_news = get_news(q=topic)
-            ctx_str = ctx_news[0]['title'] if ctx_news else "Global Trends"
-            prompt = f"Argument: {arg}. Context: {ctx_str}."
-            reply = ask_ai(prompt, "Debate")
+            ctx_str = ctx_news[0]['title'] if ctx_news else "Current global events"
+            reply = ask_ai_groq(arg, ctx_str)
             st.session_state['rebuttal'] = reply
             save_mem(arg, reply, topic)
     if 'rebuttal' in st.session_state:
@@ -147,4 +140,4 @@ with t4:
         conn = sqlite3.connect('intel.db')
         st.dataframe(pd.read_sql_query("SELECT * FROM logs ORDER BY time DESC", conn), use_container_width=True)
         conn.close()
-    except: st.write("History log is empty.")
+    except: st.write("History log is currently empty.")
