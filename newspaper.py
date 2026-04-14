@@ -5,155 +5,105 @@ import pandas as pd
 from datetime import datetime
 import time
 
-# --- 1. DATABASE SETUP ---
+# --- 1. DATABASE & MEMORY ---
 def init_db():
-    conn = sqlite3.connect('user_memory.db')
+    conn = sqlite3.connect('intel.db')
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS memory 
-                 (timestamp TEXT, user_input TEXT, ai_response TEXT, topic TEXT)''')
+    c.execute('CREATE TABLE IF NOT EXISTS logs (time TEXT, user TEXT, ai TEXT, topic TEXT)')
     conn.commit()
     conn.close()
 
-def save_interaction(user_text, ai_text, topic):
-    conn = sqlite3.connect('user_memory.db')
+def save_mem(u, a, t):
+    conn = sqlite3.connect('intel.db')
     c = conn.cursor()
-    c.execute("INSERT INTO memory VALUES (?,?,?,?)", 
-              (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_text, ai_text, topic))
+    c.execute("INSERT INTO logs VALUES (?,?,?,?)", (datetime.now().strftime("%H:%M"), u, a, t))
     conn.commit()
     conn.close()
 
 init_db()
 
-# --- 2. CONFIG & KEYS ---
-st.set_page_config(page_title="Nexus Intelligence News", layout="wide")
+# --- 2. CONFIG ---
+st.set_page_config(page_title="Intelligence News", layout="wide")
+NEWS_KEY = "434fc8e864e04c43a7e07cdbce6d8fdb"
+HF_KEY = "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"
 
-# Get keys from secrets
-NEWS_API_KEY ="434fc8e864e04c43a7e07cdbce6d8fdb" if "NEWS_API_KEY" in st.secrets else "YOUR_NEWS_API_KEY"
-HF_TOKEN ="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" if "HF_TOKEN" in st.secrets else "YOUR_HF_TOKEN"
-
-# --- 3. FIX SCROLLING & STYLE ---
+# --- 3. UI & MOBILE FIX ---
 st.markdown("""
     <style>
-    /* Prevents the 'pull-to-refresh' on mobile devices */
-    body {
-        overscroll-behavior-y: contain;
-    }
-    .stApp { background-color: #0b0e14; color: #e0e0e0; }
-    .nav-card {
-        background: #1e293b;
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid #334155;
-        margin-bottom: 20px;
-    }
-    .arg-box {
-        background: #1e1b4b;
-        padding: 20px;
-        border-radius: 8px;
-        border-left: 5px solid #818cf8;
-    }
+    body { overscroll-behavior-y: contain; }
+    .stApp { background-color: #0d1117; color: #c9d1d9; }
+    .news-card { padding: 15px; border-radius: 8px; border: 1px solid #30363d; margin-bottom: 10px; background: #161b22; }
+    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+    .stTabs [data-baseweb="tab"] { background-color: #21262d; border-radius: 4px; padding: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. CORE ENGINES ---
-def fetch_news(query=None, source=None):
-    base_url = "https://newsapi.org/v2/"
-    params = {"apiKey": NEWS_API_KEY, "language": "en"}
-    if source:
-        endpoint = "top-headlines"
-        params["sources"] = source
-    elif query:
-        endpoint = "everything"
-        params["qInTitle"] = query
-        params["sortBy"] = "relevancy"
-    else:
-        endpoint = "top-headlines"
-        params["category"] = "general"
+# --- 4. ENGINE ---
+def get_news(q=None, s=None):
+    url = "https://newsapi.org/v2/top-headlines" if not q else "https://newsapi.org/v2/everything"
+    p = {"apiKey": NEWS_KEY, "language": "en", "pageSize": 10}
+    if s: p["sources"] = s
+    if q: p["q"] = q
     try:
-        r = requests.get(base_url + endpoint, params=params)
-        return r.json().get('articles', [])
-    except:
-        return []
+        return requests.get(url, params=p).json().get('articles', [])
+    except: return []
 
-def ai_engine(prompt, task="summarize"):
-    API_URL = "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    payload = {"inputs": f"Task: {task}. Content: {prompt[:600]}", "options": {"wait_for_model": True}}
+def ask_ai(txt, task):
+    url = "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6"
+    h = {"Authorization": f"Bearer {HF_KEY}"}
+    payload = {"inputs": f"{task}: {txt[:500]}", "options": {"wait_for_model": True}}
+    try:
+        res = requests.post(url, headers=h, json=payload, timeout=15).json()
+        return res[0]['summary_text'] if isinstance(res, list) else "AI Warming up... try again in 5s."
+    except: return "System busy."
+
+# --- 5. APP INTERFACE ---
+st.title("Intelligence News")
+t1, t2, t3, t4 = st.tabs(["Feed", "Search", "Debate", "History"])
+
+# --- TAB 1: FEED ---
+with t1:
+    src = st.selectbox("Source", ["All", "bbc-news", "reuters", "the-verge", "bloomberg"])
+    sid = None if src == "All" else src
+    news = get_news(s=sid)
     
-    for attempt in range(3):
-        try:
-            response = requests.post(API_URL, headers=headers, json=payload, timeout=25)
-            res = response.json()
-            if isinstance(res, list) and len(res) > 0:
-                return res[0]['summary_text']
-            elif "estimated_time" in str(res):
-                st.info("System warming up...")
-                time.sleep(6)
-                continue
-        except:
-            continue
-    return "Intelligence currently unavailable. Please try again in a few moments."
-
-# --- 5. UI INTERFACE ---
-st.title("Nexus Intelligence News")
-tabs = st.tabs(["Live Feed", "Deep Search", "Debate Unit", "Memory"])
-
-# --- TAB 1: LIVE FEED ---
-with tabs[0]:
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        company = st.selectbox("Select Agency", ["All Sources", "bbc-news", "reuters", "the-verge", "bloomberg"])
-        source_id = None if company == "All Sources" else company
+    if news:
+        if st.button("Summarize Top Stories"):
+            with st.spinner("Processing..."):
+                blob = " ".join([n['title'] for n in news[:5]])
+                st.info(ask_ai(blob, "Summarize"))
         
-    with col2:
-        articles = fetch_news(source=source_id)
-        if articles:
-            # We cache the summary so it doesn't disappear
-            if f"summary_{company}" not in st.session_state:
-                blob = " ".join([a['title'] for a in articles[:5]])
-                st.session_state[f"summary_{company}"] = ai_engine(blob, "General Analysis")
-            
-            st.markdown(f"<div class='nav-card'><b>Executive Summary:</b><br>{st.session_state[f'summary_{company}']}</div>", unsafe_allow_html=True)
-            
-            for a in articles[:5]:
-                st.write(f"### {a['title']}")
-                st.write(a['description'])
-                st.markdown(f"[View Document]({a['url']})")
-                st.divider()
+        for n in news[:8]:
+            st.markdown(f"<div class='news-card'><b>{n['title']}</b><br><small>{n['source']['name']}</small></div>", unsafe_allow_html=True)
+            st.write(n['description'])
+            st.markdown(f"[Read More]({n['url']})")
 
-# --- TAB 2: DEEP SEARCH ---
-with tabs[1]:
-    query = st.text_input("Search Subject")
+# --- TAB 2: SEARCH ---
+with t2:
+    query = st.text_input("Topic")
     if query:
-        results = fetch_news(query=query)
-        for r in results[:5]:
+        res = get_news(q=query)
+        for r in res[:5]:
             st.write(f"**{r['title']}**")
             st.write(r['description'])
 
-# --- TAB 3: DEBATE UNIT ---
-with tabs[2]:
-    st.subheader("Counter-Intelligence Debate")
+# --- TAB 3: DEBATE ---
+with t3:
     topic = st.text_input("Debate Topic")
-    user_arg = st.text_area("Your Position")
-    
-    if st.button("Initiate Debate"):
-        with st.spinner("Analyzing arguments..."):
-            news = fetch_news(query=topic)
-            context = " ".join([n['title'] for n in news[:3]])
-            rebuttal = ai_engine(f"User says: {user_arg}. News: {context}", "Debate")
-            st.session_state['last_rebuttal'] = rebuttal
-            save_interaction(user_arg, rebuttal, topic)
-            
-    if 'last_rebuttal' in st.session_state:
-        st.markdown(f"<div class='arg-box'><b>AI Rebuttal:</b><br>{st.session_state['last_rebuttal']}</div>", unsafe_allow_html=True)
+    arg = st.text_area("Your Argument")
+    if st.button("Fight"):
+        with st.spinner("Thinking..."):
+            ctx = " ".join([n['title'] for n in get_news(q=topic)[:2]])
+            reply = ask_ai(f"Arg: {arg}. Context: {ctx}", "Argue against")
+            st.session_state['rebuttal'] = reply
+            save_mem(arg, reply, topic)
+    if 'rebuttal' in st.session_state:
+        st.error(f"AI: {st.session_state['rebuttal']}")
 
-# --- TAB 4: MEMORY ---
-with tabs[3]:
-    st.subheader("Stored Intelligence Patterns")
+# --- TAB 4: HISTORY ---
+with t4:
     try:
-        conn = sqlite3.connect('user_memory.db')
-        df = pd.read_sql_query("SELECT * FROM memory", conn)
-        st.dataframe(df)
+        conn = sqlite3.connect('intel.db')
+        st.table(pd.read_sql_query("SELECT * FROM logs ORDER BY time DESC", conn))
         conn.close()
-    except:
-        st.write("Memory logs empty.")
+    except: st.write("No history.")
