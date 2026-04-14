@@ -1,138 +1,142 @@
 import streamlit as st
 import requests
 import sqlite3
-import pandas as pd
+import uuid
 from datetime import datetime
 
-# --- 1. DATABASE SETUP ---
-def init_db():
-    conn = sqlite3.connect('intel.db')
-    c = conn.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS logs (time TEXT, user TEXT, ai TEXT, topic TEXT)')
-    conn.commit()
-    conn.close()
-
-def save_mem(u, a, t):
-    conn = sqlite3.connect('intel.db')
-    c = conn.cursor()
-    c.execute("INSERT INTO logs VALUES (?,?,?,?)", (datetime.now().strftime("%H:%M"), u, a, t))
-    conn.commit()
-    conn.close()
-
-init_db()
-
-# --- 2. CONFIGURATION ---
-st.set_page_config(page_title="Intel News", layout="wide")
+# --- 1. SETTINGS & DEVICE-LOCAL DATABASE ---
+st.set_page_config(page_title="Intel", layout="wide")
 NEWS_KEY = st.secrets.get("NEWS_API_KEY", "")
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-# --- 3. CRYSTAL VIBE + GESTURE KILLER ---
+if "device_id" not in st.session_state:
+    st.session_state.device_id = str(uuid.uuid4())
+
+def save_private_mem(u, a):
+    conn = sqlite3.connect('local_intel.db')
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS logs (device TEXT, time TEXT, user TEXT, ai TEXT)')
+    c.execute("INSERT INTO logs VALUES (?,?,?,?)", (st.session_state.device_id, datetime.now().strftime("%H:%M"), u, a))
+    conn.commit()
+    conn.close()
+
+# --- 2. THE UI & SCROLL LOCK ---
 st.markdown("""
     <style>
-    /* Prevent the bounce/refresh at the top */
     html, body, [data-testid="stAppViewContainer"] {
-        overscroll-behavior-y: none !important;
-        background-color: #050505;
+        background-color: #050505 !important;
+        overscroll-behavior: none !important;
+        position: fixed;
+        width: 100%;
+        height: 100%;
+        overflow: hidden !important;
     }
-    
-    .stApp { background-color: #050505; color: #e0e0e0; }
-    header, footer, #MainMenu {visibility: hidden;}
 
-    /* Chat Bubbles (Logo Colors) */
+    .scroll-area {
+        height: 70vh;
+        overflow-y: auto !important;
+        padding: 10px;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    header, footer, [data-testid="stHeader"] {visibility: hidden !important;}
+
+    /* User: Minimalist Slate | AI: Emerald Neon */
     .user-bubble {
         align-self: flex-end;
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.07);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        padding: 12px 16px;
-        border-radius: 18px 18px 2px 18px;
+        padding: 14px;
+        border-radius: 20px 20px 4px 20px;
         margin: 8px 0 8px auto;
-        max-width: 80%;
-        backdrop-filter: blur(10px);
+        max-width: 85%;
+        color: #fff;
+        font-family: sans-serif;
     }
-    
     .ai-bubble {
         align-self: flex-start;
-        background: linear-gradient(135deg, #007aff, #7000ff);
-        color: white;
-        padding: 12px 16px;
-        border-radius: 18px 18px 18px 2px;
+        background: linear-gradient(135deg, #05ffa1, #007aff);
+        color: #000;
+        font-weight: 600;
+        padding: 14px;
+        border-radius: 20px 20px 20px 4px;
         margin: 8px auto 8px 0;
-        max-width: 80%;
-        box-shadow: 0 4px 15px rgba(112, 0, 255, 0.3);
+        max-width: 85%;
+        box-shadow: 0 4px 20px rgba(5, 255, 161, 0.2);
     }
 
-    /* News Card Styling */
     .intel-card {
-        padding: 15px; border-radius: 12px; border: 1px solid #30363d; 
-        margin-bottom: 15px; background: rgba(22, 27, 34, 0.6);
-        border-left: 4px solid #007aff;
+        background: #111;
+        padding: 15px;
+        border-radius: 12px;
+        border-left: 2px solid #05ffa1;
+        margin-bottom: 15px;
     }
     
-    .source-tag {
-        background: #7000ff; color: white; padding: 2px 8px;
-        border-radius: 4px; font-size: 10px; font-weight: bold;
+    /* Search Bar Styling */
+    .stTextInput>div>div>input {
+        background-color: #111 !important;
+        color: #05ffa1 !important;
+        border: 1px solid #333 !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 4. ENGINE FUNCTIONS ---
-def get_news(q=None):
-    url = "https://newsapi.org/v2/top-headlines" if not q else "https://newsapi.org/v2/everything"
-    p = {"apiKey": NEWS_KEY, "language": "en", "pageSize": 10}
-    if q: p["q"] = q
+# --- 3. ENGINE ---
+def get_intel(query=None):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    if query:
+        url = f"https://newsapi.org/v2/everything?q={query}&apiKey={NEWS_KEY}&language=en&pageSize=12"
+    else:
+        url = f"https://newsapi.org/v2/top-headlines?apiKey={NEWS_KEY}&language=en&pageSize=12"
+    
     try:
-        r = requests.get(url, params=p).json()
+        r = requests.get(url, headers=headers).json()
         return r.get('articles', [])
     except: return []
 
-def ask_ai_groq(messages):
+def ask_neural(msgs):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
-    data = {"model": "llama-3.1-8b-instant", "messages": messages, "temperature": 0.7}
+    data = {"model": "llama-3.1-8b-instant", "messages": msgs, "temperature": 0.6}
     try:
-        response = requests.post(url, headers=headers, json=data, timeout=10)
-        return response.json()['choices'][0]['message']['content']
-    except: return "Link unstable."
+        r = requests.post(url, headers=headers, json=data, timeout=10)
+        return r.json()['choices'][0]['message']['content']
+    except: return "Neural Link Timeout."
 
-# --- 5. INTERFACE ---
-t1, t2, t3 = st.tabs(["FEED", "DEBATE", "LOGS"])
+# --- 4. TABS ---
+t1, t2 = st.tabs(["FEED", "DEBATE"])
 
 with t1:
-    st.markdown("### 📡 NEURAL FEED")
-    news = get_news()
-    if news:
-        for n in news:
-            st.markdown(f"""
-            <div class='intel-card'>
-                <span class='source-tag'>{n['source']['name']}</span><br>
-                <div style='margin-top:8px; font-weight:bold;'>{n['title']}</div>
-                <div style='font-size:13px; color:#aaa; margin-top:5px;'>{n.get('description') or ''}</div>
-            </div>
-            """, unsafe_allow_html=True)
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        s_query = st.text_input("", placeholder="Search Intel...", label_visibility="collapsed")
+    with col2:
+        if st.button("🌐"): s_query = None # Reset button
+        
+    st.markdown("<div class='scroll-area'>", unsafe_allow_html=True)
+    intel = get_intel(s_query)
+    if intel:
+        for i in intel:
+            st.markdown(f"<div class='intel-card'><b>{i['title']}</b><br><small style='color:#666'>{i['source']['name']}</small></div>", unsafe_allow_html=True)
+    else:
+        st.write("No signals detected.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 with t2:
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    if "messages" not in st.session_state: st.session_state.messages = []
     
-    # Render the chat
-    for msg in st.session_state.messages:
-        div_class = "user-bubble" if msg["role"] == "user" else "ai-bubble"
-        st.markdown(f"<div class='{div_class}'>{msg['content']}</div>", unsafe_allow_html=True)
+    st.markdown("<div class='scroll-area'>", unsafe_allow_html=True)
+    for m in st.session_state.messages:
+        cls = "user-bubble" if m["role"] == "user" else "ai-bubble"
+        st.markdown(f"<div class='{cls}'>{m['content']}</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    # Input Box
-    user_input = st.chat_input("Input Position...")
-    if user_input:
-        st.session_state.messages.append({"role": "user", "content": user_input})
+    prompt = st.chat_input("Input Position...")
+    if prompt:
+        st.session_state.messages.append({"role": "user", "content": prompt})
         with st.spinner(""):
-            reply = ask_ai_groq([{"role": "user", "content": user_input}])
-            st.session_state.messages.append({"role": "assistant", "content": reply})
-            save_mem(user_input, reply, "Debate")
+            ans = ask_neural([{"role": "user", "content": prompt}])
+            st.session_state.messages.append({"role": "assistant", "content": ans})
+            save_private_mem(prompt, ans)
         st.rerun()
-
-with t3:
-    try:
-        conn = sqlite3.connect('intel.db')
-        df = pd.read_sql_query("SELECT * FROM logs ORDER BY time DESC", conn)
-        st.dataframe(df, use_container_width=True)
-        conn.close()
-    except: st.write("No logs recorded.")
