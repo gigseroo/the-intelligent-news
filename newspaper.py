@@ -21,22 +21,23 @@ def save_mem(u, a, t):
 
 init_db()
 
-# --- 2. CONFIGURATION ---
+# --- 2. CONFIGURATION (SECRETS) ---
 st.set_page_config(page_title="Intelligence News", layout="wide")
-# Using hardcoded keys if st.secrets fails for your test
-NEWS_KEY = st.secrets.get("NEWS_API_KEY", "434fc8e864e04c43a7e07cdbce6d8fdb")
-GROQ_KEY = st.secrets.get("GROQ_API_KEY", "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")
 
-# --- 3. UI STYLE & AGGRESSIVE SCROLL FIX ---
+# This pulls the keys you just saved in the Streamlit Settings
+NEWS_KEY = st.secrets.get("NEWS_API_KEY")
+GROQ_KEY = st.secrets.get("GROQ_API_KEY")
+
+# --- 3. UI STYLE & SCROLL PROTECTION ---
 st.markdown("""
     <style>
-    /* The most aggressive mobile scroll fix: Locks the background */
+    /* Blocks mobile pull-to-refresh for smooth scrolling */
     html, body {
-        overscroll-behavior: none !important;
-        overflow: hidden !important;
-        height: 100% !important;
+        overscroll-behavior-y: contain !important;
         position: fixed;
+        overflow: hidden;
         width: 100%;
+        height: 100%;
     }
     [data-testid="stAppViewContainer"] {
         overflow-y: auto !important;
@@ -53,7 +54,7 @@ st.markdown("""
         border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 12px;
         width: fit-content;
     }
-    img { border-radius: 8px; margin-bottom: 15px; }
+    img { border-radius: 8px; margin-bottom: 15px; width: 100%; object-fit: cover; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -70,17 +71,18 @@ def get_news(q=None, s=None):
 
 def ask_ai_groq(user_arg, news_context):
     url = "https://api.groq.com/openai/v1/chat/completions"
-    clean_key = GROQ_KEY.strip()
-    
+    if not GROQ_KEY:
+        return "Error: GROQ_API_KEY missing from Streamlit Secrets."
+        
     headers = {
-        "Authorization": f"Bearer {clean_key}",
+        "Authorization": f"Bearer {GROQ_KEY.strip()}",
         "Content-Type": "application/json"
     }
     
     data = {
         "model": "llama3-8b-8192",
         "messages": [
-            {"role": "system", "content": "You are a sharp intelligence debater. Use logic and facts."},
+            {"role": "system", "content": "You are a sharp intelligence debater. Be logical and concise."},
             {"role": "user", "content": f"Argument: {user_arg}. Context: {news_context}"}
         ],
         "temperature": 0.7
@@ -91,7 +93,7 @@ def ask_ai_groq(user_arg, news_context):
         if response.status_code == 200:
             return response.json()['choices'][0]['message']['content']
         else:
-            return f"Error {response.status_code}: {response.text}"
+            return f"Error {response.status_code}: Ensure your Groq key is correct in Secrets."
     except Exception as e:
         return f"Connection Failed: {str(e)}"
 
@@ -132,11 +134,11 @@ with t3:
     arg = st.text_area("State Your Position")
     if st.button("Initiate Fight"):
         if not arg or not topic:
-            st.warning("Input required for battle.")
+            st.warning("Position and Topic required for engagement.")
         else:
-            with st.spinner("Engaging AI..."):
+            with st.spinner("Processing..."):
                 ctx_news = get_news(q=topic)
-                ctx_str = ctx_news[0]['title'] if ctx_news else "General Current Affairs"
+                ctx_str = ctx_news[0]['title'] if ctx_news else "Global Current Affairs"
                 reply = ask_ai_groq(arg, ctx_str)
                 st.session_state['rebuttal'] = reply
                 save_mem(arg, reply, topic)
@@ -152,4 +154,4 @@ with t4:
         st.dataframe(df, use_container_width=True)
         conn.close()
     except: 
-        st.write("No intelligence logs recorded yet.")
+        st.write("No intelligence logs recorded.")
