@@ -2,115 +2,114 @@ import streamlit as st
 import requests
 import urllib.parse
 
-# --- 1. TACTICAL HUD UI (NEW VIBE) ---
-st.set_page_config(page_title="G.R.E.G. HUD", layout="wide")
+# --- 1. THE "BOUTIQUE HUD" UI ---
+st.set_page_config(page_title="G.R.E.G. COMMAND", layout="wide")
 
 st.markdown("""
     <style>
-    /* Kill Streamlit UI */
     [data-testid="stHeader"], [data-testid="stFooter"], header, footer { display: none !important; }
+    .stApp { background-color: #020508; color: #00f2ff; font-family: 'Inter', sans-serif; }
     
-    /* Background: Deep Slate with Scanlines */
-    .stApp { 
-        background-color: #020202; 
-        background-image: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-        background-size: 100% 2px, 3px 100%;
-        color: #00ffcc; 
-        font-family: 'Courier New', monospace;
+    /* Product Card Styling */
+    .product-card {
+        background: rgba(0, 242, 255, 0.05);
+        border: 1px solid rgba(0, 242, 255, 0.2);
+        border-radius: 12px;
+        padding: 15px;
+        margin-bottom: 20px;
+        transition: 0.3s;
     }
-
-    /* Tactical Header */
-    .hud-header {
-        border-bottom: 2px solid #00ffcc;
-        padding: 10px;
-        text-align: left;
-        font-weight: bold;
-        letter-spacing: 5px;
-        text-shadow: 0 0 10px #00ffcc;
-    }
-
-    /* Execution Box (The Fix for the missing button) */
-    .execution-unit {
-        background: rgba(0, 255, 204, 0.1);
-        border: 2px solid #00ffcc;
-        padding: 20px;
-        margin: 20px 0;
-        border-radius: 0px; /* Sharp edges for tactical vibe */
-        clip-path: polygon(0% 0%, 100% 0%, 100% 80%, 95% 100%, 0% 100%);
-    }
-
-    .msg-greg { color: #00ffcc; margin-bottom: 10px; border-left: 2px solid #00ffcc; padding-left: 10px; }
-    .msg-user { color: #ffffff; opacity: 0.7; text-align: right; margin-bottom: 10px; }
+    .product-card:hover { border-color: #00f2ff; box-shadow: 0 0 15px rgba(0, 242, 255, 0.3); }
+    .price-tag { color: #00ff88; font-weight: bold; font-size: 20px; }
     
-    /* Input Styling */
-    .stChatInput { border-top: 1px solid #00ffcc !important; }
+    /* GREG Avatar */
+    .greg-status {
+        background: #00f2ff; color: #000;
+        padding: 5px 15px; border-radius: 20px;
+        font-size: 12px; font-weight: bold;
+        display: inline-block; margin-bottom: 20px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 # --- 2. THE BRAIN ---
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-def greg_brain(messages):
+def greg_ai(prompt):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "llama-3.1-8b-instant",
-        "messages": messages,
-        "temperature": 0.4
+        "messages": [{"role": "system", "content": "You are GREG. Efficient, helpful, and high-tech."}, 
+                     {"role": "user", "content": prompt}]
     }
     try:
         res = requests.post(url, headers=headers, json=payload).json()
         return res['choices'][0]['message']['content']
-    except: return "CORE LINK OFFLINE."
+    except: return "Connection unstable, Sir."
 
-# --- 3. PERSISTENT STATE ---
-if "history" not in st.session_state:
-    st.session_state.history = []
-if "active_link" not in st.session_state:
-    st.session_state.active_link = None
-if "link_label" not in st.session_state:
-    st.session_state.link_label = None
+# --- 3. SESSION STATE ---
+if "shopping_cart" not in st.session_state: st.session_state.shopping_cart = []
+if "view" not in st.session_state: st.session_state.view = "main"
 
-# --- 4. HUD INTERFACE ---
-st.markdown('<div class="hud-header">SYSTEM: G.R.E.G. // VER 4.0</div>', unsafe_allow_html=True)
+# --- 4. THE INTERFACE ---
+st.markdown('<div class="greg-status">G.R.E.G. ONLINE // TACTICAL SHOPPER</div>', unsafe_allow_html=True)
 
-# Display active execution units (THE FIX)
-if st.session_state.active_link:
-    with st.container():
-        st.markdown(f'<div class="execution-unit"><b>PRIORITY UPLINK:</b> {st.session_state.link_label}</div>', unsafe_allow_html=True)
-        if st.link_button(f"EXECUTE: {st.session_state.link_label}", st.session_state.active_link):
-            st.session_state.active_link = None # Clear after use
-            st.rerun()
+# SIDEBAR: PERSISTENT SEARCH
+with st.sidebar:
+    st.title("G.R.E.G.")
+    search_input = st.text_input("What are we looking for, Sir?")
+    if st.button("EXECUTE SEARCH"):
+        st.session_state.view = "results"
+        st.session_state.last_query = search_input
 
-# Display Chat History
-for m in st.session_state.history:
-    cls = "msg-user" if m["role"] == "user" else "msg-greg"
-    st.markdown(f'<div class="{cls}">{m["content"]}</div>', unsafe_allow_html=True)
-
-# Tactical Input
-prompt = st.chat_input("ENTER SYSTEM COMMAND...")
-
-if prompt:
-    st.session_state.history.append({"role": "user", "content": prompt})
-    cmd = prompt.lower()
+# MAIN AREA
+if st.session_state.view == "results":
+    query = st.session_state.last_query
+    st.title(f"Market Results: {query.upper()}")
     
-    # Logic: Search/Actions
-    if "marketplace" in cmd:
-        item = cmd.replace("search marketplace for", "").replace("search", "").strip()
-        st.session_state.active_link = f"https://www.facebook.com/marketplace/search/?query={urllib.parse.quote(item)}"
-        st.session_state.link_label = f"MARKETPLACE SCAN [{item.upper()}]"
-        st.session_state.history.append({"role": "assistant", "content": f"Sir, I have established a search perimeter for {item}. Execute the priority uplink above."})
-        
-    elif "instagram" in cmd or "message" in cmd:
-        st.session_state.active_link = "https://www.instagram.com/direct/inbox/"
-        st.session_state.link_label = "INSTAGRAM UPLINK"
-        st.session_state.history.append({"role": "assistant", "content": "Instagram protocols engaged. Awaiting manual execution."})
-        
-    else:
-        with st.spinner("COMMUNICATING..."):
-            ctx = [{"role": "system", "content": "You are GREG, a tactical AI assistant. Sharp, concise, professional. Refer to user as Sir."}]
-            ctx.extend(st.session_state.history[-6:])
-            ans = greg_brain(ctx)
-            st.session_state.history.append({"role": "assistant", "content": ans})
+    # Simulating a "Scanned" response with options
+    cols = st.columns(2)
     
-    st.rerun()
+    # Option 1
+    with cols[0]:
+        st.markdown(f"""
+        <div class="product-card">
+            <img src="https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?q=80&w=500" style="width:100%; border-radius:8px;">
+            <h3>Top Rated {query}</h3>
+            <p class="price-tag">$450.00</p>
+            <p>Condition: Near Mint<br>Location: Within 5 miles</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("CONTACT SELLER", key="btn1"):
+            st.success("Drafting Instagram DM... Redirecting.")
+            st.link_button("OPEN INBOX", "https://www.instagram.com/direct/inbox/")
+
+    # Option 2
+    with cols[1]:
+        st.markdown(f"""
+        <div class="product-card">
+            <img src="https://images.unsplash.com/photo-1523275335684-37898b6baf30?q=80&w=500" style="width:100%; border-radius:8px;">
+            <h3>Budget Choice {query}</h3>
+            <p class="price-tag">$290.00</p>
+            <p>Condition: Used - Good<br>Location: 12 miles away</p>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("CONTACT SELLER", key="btn2"):
+            # Deep link into marketplace search
+            m_url = f"https://www.facebook.com/marketplace/search/?query={urllib.parse.quote(query)}"
+            st.link_button("GO TO LISTING", m_url)
+
+    if st.button("RESET HUD"):
+        st.session_state.view = "main"
+        st.rerun()
+
+else:
+    # THE CHAT INTERFACE
+    st.title("COMMAND CENTER")
+    user_msg = st.chat_input("Ask G.R.E.G. anything...")
+    if user_msg:
+        st.markdown(f"**YOU:** {user_msg}")
+        with st.spinner("G.R.E.G. is thinking..."):
+            ans = greg_ai(user_msg)
+            st.markdown(f"**G.R.E.G.:** {ans}")
