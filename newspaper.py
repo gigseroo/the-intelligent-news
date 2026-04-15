@@ -7,108 +7,113 @@ st.set_page_config(page_title="G.R.E.G. STEALTH", layout="wide")
 
 st.markdown("""
     <style>
-    /* Absolute Stealth: Black, Gray, White */
+    /* Kill all Streamlit branding and headers */
     [data-testid="stHeader"], [data-testid="stFooter"], header, footer { display: none !important; }
-    .stApp { background-color: #000000; color: #ffffff; font-family: 'Inter', sans-serif; }
+    .stApp { background-color: #000000; color: #ffffff; font-family: 'Courier New', monospace; }
     
-    /* Grid Background */
+    /* Tactical Background */
     .stApp {
-        background-image: radial-gradient(circle, #1a1a1a 1px, rgba(0, 0, 0, 0) 1px);
-        background-size: 30px 30px;
+        background-image: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), 
+                    linear-gradient(90deg, rgba(255, 255, 255, 0.01), rgba(255, 255, 255, 0.01));
+        background-size: 100% 2px, 3px 100%;
     }
 
-    /* Product Card: Minimalist Gray */
-    .product-card {
+    /* Action Card */
+    .dispatch-unit {
         background: #0a0a0a;
-        border: 1px solid #333;
-        border-radius: 4px;
-        padding: 15px;
-        margin-bottom: 20px;
+        border: 2px solid #ffffff;
+        padding: 20px;
+        margin-bottom: 30px;
+        text-align: center;
     }
-    .price-tag { color: #ffffff; font-weight: bold; font-size: 22px; border-bottom: 1px solid #333; padding-bottom: 5px; }
     
-    /* Buttons: White on Black */
+    .msg-greg { color: #888; border-left: 2px solid #fff; padding-left: 15px; margin-bottom: 20px; }
+    .msg-user { color: #fff; font-weight: bold; margin-bottom: 5px; letter-spacing: 2px; text-transform: uppercase; }
+    
+    /* High-Contrast Action Buttons */
     .stButton>button {
         background-color: #ffffff !important;
         color: #000000 !important;
-        border-radius: 2px !important;
-        font-weight: bold !important;
         border: none !important;
+        font-weight: bold !important;
         width: 100%;
+        height: 50px;
     }
-
-    .msg-greg { color: #aaaaaa; border-left: 1px solid #ffffff; padding-left: 15px; margin-bottom: 20px; font-family: monospace; }
-    .msg-user { color: #ffffff; font-weight: bold; margin-bottom: 5px; text-transform: uppercase; font-size: 12px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. BRAIN WITH MEMORY ---
+# --- 2. BRAIN ENGINE ---
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-def greg_brain(messages):
+def greg_query(messages):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": "llama-3.1-8b-instant",
-        "messages": messages,
-        "temperature": 0.2 # Lower temperature = more focused memory
-    }
+    payload = {"model": "llama-3.1-8b-instant", "messages": messages, "temperature": 0.1}
     try:
         res = requests.post(url, headers=headers, json=payload).json()
         return res['choices'][0]['message']['content']
-    except: return "CONNECTION INTERRUPTED."
+    except: return "CORE LINK TIMEOUT."
 
-# --- 3. PERSISTENT MEMORY ENGINE ---
-if "history" not in st.session_state:
-    st.session_state.history = [{"role": "assistant", "content": "STEALTH PROTOCOLS ACTIVE. STANDING BY."}]
-if "target_item" not in st.session_state:
-    st.session_state.target_item = None
+# --- 3. PERSISTENT STATE ---
+if "history" not in st.session_state: st.session_state.history = []
+if "target" not in st.session_state: st.session_state.target = "None"
+if "link" not in st.session_state: st.session_state.link = None
 
 # --- 4. HUD INTERFACE ---
-st.markdown("<h2 style='letter-spacing:10px;'>G.R.E.G.</h2>", unsafe_allow_html=True)
-st.markdown("<small style='color:#666;'>OBJECTIVE TRACKER: " + str(st.session_state.target_item).upper() + "</small>", unsafe_allow_html=True)
-st.divider()
+st.markdown("<h1 style='letter-spacing:20px; text-align:center; margin-top:-20px;'>GREG</h1>", unsafe_allow_html=True)
+st.caption(f"ACTIVE OBJECTIVE: {st.session_state.target.upper()}")
 
-# Display Visual Cards if an item is active
-if st.session_state.target_item:
-    cols = st.columns(2)
-    with cols[0]:
-        st.markdown(f"""<div class="product-card">
-            <div class="price-tag">£20.00</div>
-            <p style='color:#666'>LOCAL MATCH: {st.session_state.target_item.upper()}</p>
-            <p>Verified listing found within your perimeter.</p>
-        </div>""", unsafe_allow_html=True)
-        st.link_button("INITIATE UPLINK", f"https://www.facebook.com/marketplace/search/?query={urllib.parse.quote(st.session_state.target_item)}")
+# THE DISPATCHER (Sticky Action Button)
+if st.session_state.link:
+    st.markdown('<div class="dispatch-unit"><b>UPLINK SIGNAL DETECTED</b></div>', unsafe_allow_html=True)
+    c1, c2 = st.columns([4, 1])
+    with c1:
+        st.link_button(f"EXECUTE: SEARCH FOR {st.session_state.target.upper()}", st.session_state.link)
+    with c2:
+        if st.button("CLOSE"):
+            st.session_state.link = None
+            st.rerun()
+
+st.divider()
 
 # Display Chat History
 for m in st.session_state.history:
     if m["role"] == "assistant":
         st.markdown(f'<div class="msg-greg">{m["content"]}</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<div class="msg-user">USER > {m["content"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="msg-user">>> {m["content"]}</div>', unsafe_allow_html=True)
 
-# Tactical Input
-prompt = st.chat_input("Input Command...")
+# Command Input
+cmd_in = st.chat_input("Enter Protocol...")
 
-if prompt:
-    st.session_state.history.append({"role": "user", "content": prompt})
+if cmd_in:
+    st.session_state.history.append({"role": "user", "content": cmd_in})
     
-    # 1. Update Target Item using AI
-    # We ask the AI to extract the "subject" of the conversation
-    intent_check = greg_brain([
-        {"role": "system", "content": "Identify the item the user wants to find. If they mention a price or detail for a previous item, keep the original item. Return ONLY the item name."},
-        {"role": "user", "content": f"Current history: {st.session_state.target_item}. New message: {prompt}"}
-    ])
-    
-    if len(intent_check.split()) < 5: # If it's a short response, it's our item
-        st.session_state.target_item = intent_check.strip()
-
-    # 2. General Response
-    ctx = [
-        {"role": "system", "content": f"You are GREG. A stealth AI. You are helping the user find {st.session_state.target_item}. Be extremely brief and professional."},
-        {"role": "user", "content": prompt}
+    # 1. Subject Persistence (Keep track of what we are talking about)
+    mem_prompt = [
+        {"role": "system", "content": "Extract the specific item name from the user's input. If the user is giving details about a previous item (like price/color), return the previous item name. Return ONLY the item name (1-2 words)."},
+        {"role": "user", "content": f"History: {st.session_state.target}. New: {cmd_in}"}
     ]
-    response = greg_brain(ctx)
-    st.session_state.history.append({"role": "assistant", "content": response})
-    
+    new_subject = greg_query(mem_prompt)
+    if len(new_subject.split()) < 4:
+        st.session_state.target = new_subject.strip()
+
+    # 2. Command Processing
+    cmd_lower = cmd_in.lower()
+    if any(word in cmd_lower for word in ["find", "search", "buy", "marketplace", "look for"]):
+        # Generate the Marketplace link
+        q = urllib.parse.quote(st.session_state.target)
+        st.session_state.link = f"https://www.facebook.com/marketplace/search/?query={q}"
+        msg = f"Sir, I've locked the search perimeter for {st.session_state.target}. The execute link is active at the top of your HUD."
+    elif "instagram" in cmd_lower or "message" in cmd_lower:
+        st.session_state.link = "https://www.instagram.com/direct/inbox/"
+        msg = "Instagram uplink established. Direct Inbox access ready above."
+    else:
+        # Standard Conversation
+        msg = greg_query([
+            {"role": "system", "content": f"You are GREG. A stealth military AI. You are helping find {st.session_state.target}. Be extremely brief and professional."},
+            {"role": "user", "content": cmd_in}
+        ])
+
+    st.session_state.history.append({"role": "assistant", "content": msg})
     st.rerun()
