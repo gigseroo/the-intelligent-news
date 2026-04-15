@@ -2,103 +2,108 @@ import streamlit as st
 import requests
 import urllib.parse
 
-# --- 1. JARVIS STEALTH UI ---
-st.set_page_config(page_title="JARVIS", layout="wide")
+# --- 1. G.R.E.G. STEALTH UI ---
+st.set_page_config(page_title="G.R.E.G.", layout="wide")
 
 st.markdown("""
     <style>
-    /* Kill Streamlit UI */
+    /* Kill Streamlit UI Elements */
     [data-testid="stHeader"], [data-testid="stFooter"], header, footer { display: none !important; }
-    .stApp { background-color: #000; color: #00d2ff; }
+    .stApp { background-color: #050505; color: #00d2ff; }
     
-    /* Holographic Glow */
-    .jarvis-orb {
-        width: 120px; height: 120px;
-        border: 3px solid #00d2ff;
+    /* G.R.E.G. Core Visual */
+    .greg-orb {
+        width: 100px; height: 100px;
+        border: 2px solid #00d2ff;
         border-radius: 50%;
-        margin: 20px auto;
-        box-shadow: 0 0 30px #00d2ff, inset 0 0 20px #00d2ff;
+        margin: 10px auto;
+        box-shadow: 0 0 20px #00d2ff, inset 0 0 10px #00d2ff;
         display: flex; align-items: center; justify-content: center;
-        font-weight: bold; font-family: monospace;
-        animation: rotate 4s linear infinite;
+        font-family: 'Share Tech Mono', monospace;
+        letter-spacing: 2px;
+        animation: pulse 3s ease-in-out infinite;
     }
-    @keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes pulse {
+        0% { transform: scale(1); opacity: 0.7; }
+        50% { transform: scale(1.05); opacity: 1; box-shadow: 0 0 40px #00d2ff; }
+        100% { transform: scale(1); opacity: 0.7; }
+    }
 
-    .system-card {
-        background: rgba(0, 210, 255, 0.05);
-        border: 1px solid #00d2ff;
-        padding: 15px; border-radius: 12px;
-        margin-bottom: 20px;
+    /* Conversation Bubbles */
+    .greg-response {
+        background: rgba(0, 210, 255, 0.08);
+        border-left: 3px solid #00d2ff;
+        padding: 15px; border-radius: 5px;
+        margin: 10px 0; font-family: monospace;
     }
-    
-    /* Action Button */
-    .stButton>button {
-        background: linear-gradient(135deg, #00d2ff, #007aff) !important;
-        color: black !important; font-weight: bold !important;
-        border: none !important; width: 100%;
+    .user-entry {
+        background: #111;
+        padding: 10px; border-radius: 5px;
+        margin: 10px 0 10px auto; width: fit-content;
+        max-width: 80%; border: 1px solid #333;
+        color: #fff;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. THE BRAIN (Groq) ---
+# --- 2. THE BRAIN ---
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-def jarvis_brain(prompt, sys_msg="You are JARVIS, a helpful AI assistant."):
+def greg_brain(messages):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "llama-3.1-8b-instant",
-        "messages": [{"role": "system", "content": sys_msg}, {"role": "user", "content": prompt}]
+        "messages": messages,
+        "temperature": 0.5
     }
     try:
         res = requests.post(url, headers=headers, json=payload).json()
         return res['choices'][0]['message']['content']
-    except: return "Neural link unstable, sir."
+    except: return "Neural link unstable. Standing by."
 
-# --- 3. THE INTERFACE ---
-st.markdown('<div class="jarvis-orb">J.A.R.V.I.S</div>', unsafe_allow_html=True)
+# --- 3. SYSTEM STATE ---
+if "greg_history" not in st.session_state:
+    st.session_state.greg_history = [{"role": "assistant", "content": "System Online. How can I assist you, Sir?"}]
 
-tab1, tab2, tab3 = st.tabs(["COMMAND", "INTEL", "DEBATE"])
+# --- 4. MAIN INTERFACE ---
+st.markdown('<div class="greg-orb">GREG</div>', unsafe_allow_html=True)
 
-with tab1:
-    st.subheader("Neural Command Center")
-    cmd = st.text_input("Awaiting Input...", placeholder="Message [Name] on Instagram / Search Marketplace for [Item]")
+# Display Conversation History
+for chat in st.session_state.greg_history:
+    if chat["role"] == "assistant":
+        st.markdown(f"<div class='greg-response'>{chat['content']}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='user-entry'>{chat['content']}</div>", unsafe_allow_html=True)
+
+# Fixed Input at Bottom
+prompt = st.chat_input("Command G.R.E.G...")
+
+if prompt:
+    # 1. Add user message to history
+    st.session_state.greg_history.append({"role": "user", "content": prompt})
     
-    if cmd:
-        cmd_lower = cmd.lower()
+    cmd_lower = prompt.lower()
+    
+    # 2. Logic Layer: Automated Actions
+    if "marketplace" in cmd_lower:
+        item = cmd_lower.replace("search marketplace for", "").replace("search", "").strip()
+        url = f"https://www.facebook.com/marketplace/search/?query={urllib.parse.quote(item)}"
+        ans = f"Scanning Facebook Marketplace for '{item.upper()}'. Uplink ready below."
+        st.session_state.greg_history.append({"role": "assistant", "content": ans})
+        st.link_button("EXECUTE MARKETPLACE LINK", url)
         
-        # Action: Facebook Marketplace
-        if "marketplace" in cmd_lower:
-            item = cmd_lower.replace("search marketplace for", "").replace("search", "").strip()
-            encoded_item = urllib.parse.quote(item)
-            url = f"https://www.facebook.com/marketplace/search/?query={encoded_item}"
-            st.markdown(f"<div class='system-card'>Scanning Global Markets for: {item.upper()}</div>", unsafe_allow_html=True)
-            st.link_button("OPEN MARKETPLACE", url)
-
-        # Action: Instagram
-        elif "instagram" in cmd_lower or "message" in cmd_lower:
-            st.markdown("<div class='system-card'>Establishing Secure Instagram Uplink...</div>", unsafe_allow_html=True)
-            # This opens the IG app directly to the inbox
-            st.link_button("OPEN INSTAGRAM", "https://www.instagram.com/direct/inbox/")
-
-        # General Assistant
-        else:
-            response = jarvis_brain(cmd, "You are Jarvis. Be polite, concise, and refer to the user as Sir.")
-            st.markdown(f"<div class='system-card'>{response}</div>", unsafe_allow_html=True)
-
-with tab2:
-    # This is your old 'Search' code integrated
-    s_query = st.text_input("Global Search Protocols")
-    if s_query:
-        with st.spinner("Analyzing News Cycles..."):
-            report = jarvis_brain(f"Search context for {s_query}. Summarize deeply.", "You are Jarvis. Provide a deep-dive intelligence report.")
-            st.write(report)
-
-with tab3:
-    # This is your 'Debate Time' code integrated
-    subject = st.text_input("Set Logic Parameters (Subject)")
-    if subject:
-        arg = st.chat_input("State your argument...")
-        if arg:
-            rebuttal = jarvis_brain(arg, f"Subject: {subject}. Argue against the user concisely as Jarvis.")
-            st.info(rebuttal)
+    elif "instagram" in cmd_lower or "message" in cmd_lower:
+        ans = "Redirecting to Instagram Neural Net. Inbox access granted."
+        st.session_state.greg_history.append({"role": "assistant", "content": ans})
+        st.link_button("EXECUTE INSTAGRAM LINK", "https://www.instagram.com/direct/inbox/")
+        
+    else:
+        # 3. Brain Layer: General Conversation
+        with st.spinner("Processing..."):
+            context = [{"role": "system", "content": "You are GREG. Be efficient, tech-focused, and call the user Sir."}]
+            context.extend(st.session_state.greg_history[-5:]) # Give GREG memory of last 5 messages
+            response = greg_brain(context)
+            st.session_state.greg_history.append({"role": "assistant", "content": response})
+    
+    st.rerun()
