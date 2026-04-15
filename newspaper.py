@@ -2,47 +2,48 @@ import streamlit as st
 import requests
 import urllib.parse
 
-# --- 1. G.R.E.G. STEALTH UI ---
-st.set_page_config(page_title="G.R.E.G.", layout="wide")
+# --- 1. TACTICAL HUD UI (NEW VIBE) ---
+st.set_page_config(page_title="G.R.E.G. HUD", layout="wide")
 
 st.markdown("""
     <style>
-    /* Kill Streamlit UI Elements */
+    /* Kill Streamlit UI */
     [data-testid="stHeader"], [data-testid="stFooter"], header, footer { display: none !important; }
-    .stApp { background-color: #050505; color: #00d2ff; }
     
-    /* G.R.E.G. Core Visual */
-    .greg-orb {
-        width: 100px; height: 100px;
-        border: 2px solid #00d2ff;
-        border-radius: 50%;
-        margin: 10px auto;
-        box-shadow: 0 0 20px #00d2ff, inset 0 0 10px #00d2ff;
-        display: flex; align-items: center; justify-content: center;
-        font-family: 'Share Tech Mono', monospace;
-        letter-spacing: 2px;
-        animation: pulse 3s ease-in-out infinite;
-    }
-    @keyframes pulse {
-        0% { transform: scale(1); opacity: 0.7; }
-        50% { transform: scale(1.05); opacity: 1; box-shadow: 0 0 40px #00d2ff; }
-        100% { transform: scale(1); opacity: 0.7; }
+    /* Background: Deep Slate with Scanlines */
+    .stApp { 
+        background-color: #020202; 
+        background-image: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+        background-size: 100% 2px, 3px 100%;
+        color: #00ffcc; 
+        font-family: 'Courier New', monospace;
     }
 
-    /* Conversation Bubbles */
-    .greg-response {
-        background: rgba(0, 210, 255, 0.08);
-        border-left: 3px solid #00d2ff;
-        padding: 15px; border-radius: 5px;
-        margin: 10px 0; font-family: monospace;
+    /* Tactical Header */
+    .hud-header {
+        border-bottom: 2px solid #00ffcc;
+        padding: 10px;
+        text-align: left;
+        font-weight: bold;
+        letter-spacing: 5px;
+        text-shadow: 0 0 10px #00ffcc;
     }
-    .user-entry {
-        background: #111;
-        padding: 10px; border-radius: 5px;
-        margin: 10px 0 10px auto; width: fit-content;
-        max-width: 80%; border: 1px solid #333;
-        color: #fff;
+
+    /* Execution Box (The Fix for the missing button) */
+    .execution-unit {
+        background: rgba(0, 255, 204, 0.1);
+        border: 2px solid #00ffcc;
+        padding: 20px;
+        margin: 20px 0;
+        border-radius: 0px; /* Sharp edges for tactical vibe */
+        clip-path: polygon(0% 0%, 100% 0%, 100% 80%, 95% 100%, 0% 100%);
     }
+
+    .msg-greg { color: #00ffcc; margin-bottom: 10px; border-left: 2px solid #00ffcc; padding-left: 10px; }
+    .msg-user { color: #ffffff; opacity: 0.7; text-align: right; margin-bottom: 10px; }
+    
+    /* Input Styling */
+    .stChatInput { border-top: 1px solid #00ffcc !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -55,55 +56,61 @@ def greg_brain(messages):
     payload = {
         "model": "llama-3.1-8b-instant",
         "messages": messages,
-        "temperature": 0.5
+        "temperature": 0.4
     }
     try:
         res = requests.post(url, headers=headers, json=payload).json()
         return res['choices'][0]['message']['content']
-    except: return "Neural link unstable. Standing by."
+    except: return "CORE LINK OFFLINE."
 
-# --- 3. SYSTEM STATE ---
-if "greg_history" not in st.session_state:
-    st.session_state.greg_history = [{"role": "assistant", "content": "System Online. How can I assist you, Sir?"}]
+# --- 3. PERSISTENT STATE ---
+if "history" not in st.session_state:
+    st.session_state.history = []
+if "active_link" not in st.session_state:
+    st.session_state.active_link = None
+if "link_label" not in st.session_state:
+    st.session_state.link_label = None
 
-# --- 4. MAIN INTERFACE ---
-st.markdown('<div class="greg-orb">GREG</div>', unsafe_allow_html=True)
+# --- 4. HUD INTERFACE ---
+st.markdown('<div class="hud-header">SYSTEM: G.R.E.G. // VER 4.0</div>', unsafe_allow_html=True)
 
-# Display Conversation History
-for chat in st.session_state.greg_history:
-    if chat["role"] == "assistant":
-        st.markdown(f"<div class='greg-response'>{chat['content']}</div>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<div class='user-entry'>{chat['content']}</div>", unsafe_allow_html=True)
+# Display active execution units (THE FIX)
+if st.session_state.active_link:
+    with st.container():
+        st.markdown(f'<div class="execution-unit"><b>PRIORITY UPLINK:</b> {st.session_state.link_label}</div>', unsafe_allow_html=True)
+        if st.link_button(f"EXECUTE: {st.session_state.link_label}", st.session_state.active_link):
+            st.session_state.active_link = None # Clear after use
+            st.rerun()
 
-# Fixed Input at Bottom
-prompt = st.chat_input("Command G.R.E.G...")
+# Display Chat History
+for m in st.session_state.history:
+    cls = "msg-user" if m["role"] == "user" else "msg-greg"
+    st.markdown(f'<div class="{cls}">{m["content"]}</div>', unsafe_allow_html=True)
+
+# Tactical Input
+prompt = st.chat_input("ENTER SYSTEM COMMAND...")
 
 if prompt:
-    # 1. Add user message to history
-    st.session_state.greg_history.append({"role": "user", "content": prompt})
+    st.session_state.history.append({"role": "user", "content": prompt})
+    cmd = prompt.lower()
     
-    cmd_lower = prompt.lower()
-    
-    # 2. Logic Layer: Automated Actions
-    if "marketplace" in cmd_lower:
-        item = cmd_lower.replace("search marketplace for", "").replace("search", "").strip()
-        url = f"https://www.facebook.com/marketplace/search/?query={urllib.parse.quote(item)}"
-        ans = f"Scanning Facebook Marketplace for '{item.upper()}'. Uplink ready below."
-        st.session_state.greg_history.append({"role": "assistant", "content": ans})
-        st.link_button("EXECUTE MARKETPLACE LINK", url)
+    # Logic: Search/Actions
+    if "marketplace" in cmd:
+        item = cmd.replace("search marketplace for", "").replace("search", "").strip()
+        st.session_state.active_link = f"https://www.facebook.com/marketplace/search/?query={urllib.parse.quote(item)}"
+        st.session_state.link_label = f"MARKETPLACE SCAN [{item.upper()}]"
+        st.session_state.history.append({"role": "assistant", "content": f"Sir, I have established a search perimeter for {item}. Execute the priority uplink above."})
         
-    elif "instagram" in cmd_lower or "message" in cmd_lower:
-        ans = "Redirecting to Instagram Neural Net. Inbox access granted."
-        st.session_state.greg_history.append({"role": "assistant", "content": ans})
-        st.link_button("EXECUTE INSTAGRAM LINK", "https://www.instagram.com/direct/inbox/")
+    elif "instagram" in cmd or "message" in cmd:
+        st.session_state.active_link = "https://www.instagram.com/direct/inbox/"
+        st.session_state.link_label = "INSTAGRAM UPLINK"
+        st.session_state.history.append({"role": "assistant", "content": "Instagram protocols engaged. Awaiting manual execution."})
         
     else:
-        # 3. Brain Layer: General Conversation
-        with st.spinner("Processing..."):
-            context = [{"role": "system", "content": "You are GREG. Be efficient, tech-focused, and call the user Sir."}]
-            context.extend(st.session_state.greg_history[-5:]) # Give GREG memory of last 5 messages
-            response = greg_brain(context)
-            st.session_state.greg_history.append({"role": "assistant", "content": response})
+        with st.spinner("COMMUNICATING..."):
+            ctx = [{"role": "system", "content": "You are GREG, a tactical AI assistant. Sharp, concise, professional. Refer to user as Sir."}]
+            ctx.extend(st.session_state.history[-6:])
+            ans = greg_brain(ctx)
+            st.session_state.history.append({"role": "assistant", "content": ans})
     
     st.rerun()
