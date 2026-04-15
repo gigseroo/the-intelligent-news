@@ -2,110 +2,120 @@ import streamlit as st
 import requests
 import urllib.parse
 
-# --- 1. MODERN MINIMALIST UI ---
+# --- 1. MINIMALIST HUD UI ---
 st.set_page_config(page_title="G.R.E.G.", layout="wide")
 
 st.markdown("""
     <style>
-    /* Clean Black & White Theme */
+    /* Clean Monochrome Theme */
     [data-testid="stHeader"], [data-testid="stFooter"], header, footer { display: none !important; }
     .stApp { background-color: #000000; color: #ffffff; font-family: 'Inter', sans-serif; }
     
-    /* Shopping Card */
-    .shop-card {
+    /* Result List Styling */
+    .link-card {
         background: #111111;
-        border: 1px solid #333333;
-        padding: 20px;
-        margin-bottom: 20px;
-        border-radius: 12px;
+        border-radius: 8px;
+        padding: 15px;
+        margin: 10px 0;
+        border: 1px solid #333;
     }
     
-    .greg-text { color: #bbbbbb; margin-bottom: 20px; font-size: 16px; }
-    .user-text { color: #ffffff; font-weight: 600; margin-bottom: 5px; font-size: 14px; }
-    
-    /* Clean White Button */
-    .stButton>button {
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        border: none !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        width: 100%;
-        height: 45px;
+    .direct-link {
+        color: #ffffff !important;
+        text-decoration: none;
+        font-weight: bold;
+        display: block;
+        padding: 10px;
+        background: #222;
+        border-radius: 5px;
+        text-align: center;
+        border: 1px solid #444;
     }
+    .direct-link:hover { background: #333; border-color: #fff; }
+
+    .greg-msg { color: #888; margin: 15px 0; border-left: 2px solid #444; padding-left: 15px; }
+    .user-msg { color: #fff; font-weight: 600; margin-top: 20px; text-transform: uppercase; font-size: 12px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. THE BRAIN ---
+# --- 2. BRAIN ENGINE ---
 GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
 def ask_greg(messages):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
-    payload = {"model": "llama-3.1-8b-instant", "messages": messages, "temperature": 0.3}
+    payload = {"model": "llama-3.1-8b-instant", "messages": messages, "temperature": 0.2}
     try:
         res = requests.post(url, headers=headers, json=payload).json()
         return res['choices'][0]['message']['content']
-    except: return "I'm having trouble connecting right now."
+    except: return "Connection lost."
 
-# --- 3. SMART MEMORY ---
+# --- 3. SESSION STATE ---
 if "history" not in st.session_state: st.session_state.history = []
 if "item" not in st.session_state: st.session_state.item = None
-if "link" not in st.session_state: st.session_state.link = None
+if "results" not in st.session_state: st.session_state.results = []
 
-# --- 4. THE APP ---
+# --- 4. THE INTERFACE ---
 st.title("G.R.E.G.")
-if st.session_state.item:
-    st.caption(f"Currently looking for: {st.session_state.item}")
 
-# THE SEARCH BOX (Stays at the top when active)
-if st.session_state.link:
-    with st.container():
-        st.markdown(f"""<div class="shop-card">
-            <h4 style="margin:0;">Found some options for your {st.session_state.item}</h4>
-            <p style="color:#888; font-size:13px;">Click below to see the latest prices on Marketplace</p>
-        </div>""", unsafe_allow_html=True)
-        col1, col2 = st.columns([4,1])
-        with col1:
-            st.link_button(f"View {st.session_state.item} listings", st.session_state.link)
-        with col2:
-            if st.button("Clear"):
-                st.session_state.link = None
-                st.rerun()
+# DISPLAY SEARCH RESULTS AREA
+if st.session_state.item:
+    st.markdown(f"### Results for {st.session_state.item.upper()}")
+    
+    # We generate a variety of marketplace viewpoints for the user
+    search_queries = [
+        f"{st.session_state.item}",
+        f"cheap {st.session_state.item}",
+        f"used {st.session_state.item}"
+    ]
+    
+    for q in search_queries:
+        encoded = urllib.parse.quote(q)
+        link = f"https://www.facebook.com/marketplace/search/?query={encoded}"
+        st.markdown(f"""
+            <div class="link-card">
+                <small style="color:#666">SOURCE: FACEBOOK MARKETPLACE</small>
+                <p style="margin: 5px 0;">Broad search for: <b>{q}</b></p>
+                <a href="{link}" target="_blank" class="direct-link">VIEW ALL PRODUCTS</a>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    if st.button("Clear Results"):
+        st.session_state.item = None
+        st.rerun()
 
 st.divider()
 
-# Conversation
+# CHAT LOG
 for m in st.session_state.history:
     if m["role"] == "assistant":
-        st.markdown(f'<div class="greg-text">{m["content"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="greg-msg">{m["content"]}</div>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<div class="user-text">{m["content"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="user-msg">YOU // {m["content"]}</div>', unsafe_allow_html=True)
 
-# Input
-chat_input = st.chat_input("What can I find for you?")
+# INPUT
+cmd = st.chat_input("What are we finding today?")
 
-if chat_input:
-    st.session_state.history.append({"role": "user", "content": chat_input})
+if cmd:
+    st.session_state.history.append({"role": "user", "content": cmd})
     
-    # 1. Update the item name (Memory)
-    mem_check = ask_greg([
-        {"role": "system", "content": "The user is shopping. Identify the main object they are looking for. If they are just adding details like 'cheap' or 'blue' to a previous item, keep the original item name. Return just the 1-2 word name of the object."},
-        {"role": "user", "content": f"Context: {st.session_state.item}. Input: {chat_input}"}
+    # Identify the product
+    item_id = ask_greg([
+        {"role": "system", "content": "Extract the specific item name. If the user mentions price/color for the previous item, keep the original name. Return only 1-2 words."},
+        {"role": "user", "content": f"Previous: {st.session_state.item}. New: {cmd}"}
     ])
-    if len(mem_check.split()) < 4:
-        st.session_state.item = mem_check.strip()
+    
+    if len(item_id.split()) < 4:
+        st.session_state.item = item_id.strip()
 
-    # 2. Respond & Link
-    low_input = chat_input.lower()
-    if any(x in low_input for x in ["find", "buy", "search", "marketplace", "looking for", "price"]):
-        query = urllib.parse.quote(st.session_state.item)
-        st.session_state.link = f"https://www.facebook.com/marketplace/search/?query={query}"
-        reply = f"I've pulled up some listings for that {st.session_state.item}. Check the link at the top!"
+    # Bot Personality Response
+    low_cmd = cmd.lower()
+    if any(x in low_cmd for x in ["find", "buy", "search", "look", "price"]):
+        reply = f"I've generated a few specialized links for {st.session_state.item} below. These will take you directly to the best deals."
     else:
         reply = ask_greg([
-            {"role": "system", "content": f"You are GREG, a helpful shopping bot. You're assisting with finding a {st.session_state.item}. Be friendly, helpful, and concise. No military talk."},
-            {"role": "user", "content": chat_input}
+            {"role": "system", "content": f"You are GREG, a helpful shopping bot for finding {st.session_state.item}. Be concise and friendly. No military talk."},
+            {"role": "user", "content": cmd}
         ])
 
     st.session_state.history.append({"role": "assistant", "content": reply})
