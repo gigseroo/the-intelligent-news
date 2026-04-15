@@ -1,132 +1,104 @@
 import streamlit as st
 import requests
-import sqlite3
-from datetime import datetime
+import urllib.parse
 
-# --- 1. CORE CONFIG ---
-st.set_page_config(page_title="Intel Neural", layout="wide", initial_sidebar_state="collapsed")
+# --- 1. JARVIS STEALTH UI ---
+st.set_page_config(page_title="JARVIS", layout="wide")
 
-NEWS_KEY = st.secrets.get("NEWS_API_KEY", "")
-GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
-
-# --- 2. THE TOTAL STEALTH UI ---
 st.markdown("""
     <style>
-    /* Absolute Kill of Header and Footer */
-    [data-testid="stHeader"], [data-testid="stFooter"], header, footer, .st-emotion-cache-18ni7ap {
-        display: none !important;
-        visibility: hidden !important;
+    /* Kill Streamlit UI */
+    [data-testid="stHeader"], [data-testid="stFooter"], header, footer { display: none !important; }
+    .stApp { background-color: #000; color: #00d2ff; }
+    
+    /* Holographic Glow */
+    .jarvis-orb {
+        width: 120px; height: 120px;
+        border: 3px solid #00d2ff;
+        border-radius: 50%;
+        margin: 20px auto;
+        box-shadow: 0 0 30px #00d2ff, inset 0 0 20px #00d2ff;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: bold; font-family: monospace;
+        animation: rotate 4s linear infinite;
+    }
+    @keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    .system-card {
+        background: rgba(0, 210, 255, 0.05);
+        border: 1px solid #00d2ff;
+        padding: 15px; border-radius: 12px;
+        margin-bottom: 20px;
     }
     
-    /* Remove the 'top gap' so it looks like a native APK */
-    .stAppViewBlockContainer {
-        padding-top: 0rem !important;
-        padding-bottom: 0rem !important;
-    }
-    
-    .stApp { background-color: #050505; color: #e0e0e0; }
-
-    /* Visual News Cards */
-    .gen-card {
-        background: #111;
-        border-radius: 15px;
-        overflow: hidden;
-        margin-bottom: 25px;
-        border: 1px solid #222;
-    }
-    .gen-img { width: 100%; height: 240px; object-fit: cover; border-bottom: 2px solid #05ffa1; }
-    .gen-content { padding: 18px; }
-
-    /* Debate Boxes */
-    .ai-box {
-        background: linear-gradient(135deg, #05ffa1, #007aff);
-        color: #000; padding: 15px; border-radius: 15px;
-        margin: 10px 0; font-weight: 600;
-    }
-    .user-box {
-        background: #222; color: #fff; padding: 15px; border-radius: 15px;
-        margin: 10px 0 10px auto; width: fit-content; max-width: 85%;
-        border: 1px solid #333;
+    /* Action Button */
+    .stButton>button {
+        background: linear-gradient(135deg, #00d2ff, #007aff) !important;
+        color: black !important; font-weight: bold !important;
+        border: none !important; width: 100%;
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. API ENGINES ---
-def get_intel(query=None):
-    headers = {"User-Agent": "Mozilla/5.0"}
-    # If no query, we search for 'breaking news' to ensure we get results with images
-    search_term = query if query else "breaking news"
-    url = f"https://newsapi.org/v2/everything?q={search_term}&language=en&sortBy=publishedAt&apiKey={NEWS_KEY}&pageSize=20"
-    
-    try:
-        r = requests.get(url, headers=headers).json()
-        articles = r.get('articles', [])
-        # Filter: Only return articles that actually have images for the General feed
-        return [a for a in articles if a.get('urlToImage')]
-    except:
-        return []
+# --- 2. THE BRAIN (Groq) ---
+GROQ_KEY = st.secrets.get("GROQ_API_KEY", "")
 
-def call_ai(prompt, system_role):
+def jarvis_brain(prompt, sys_msg="You are JARVIS, a helpful AI assistant."):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
     payload = {
         "model": "llama-3.1-8b-instant",
-        "messages": [{"role": "system", "content": system_role}, {"role": "user", "content": prompt}],
-        "temperature": 0.6
+        "messages": [{"role": "system", "content": sys_msg}, {"role": "user", "content": prompt}]
     }
     try:
         res = requests.post(url, headers=headers, json=payload).json()
         return res['choices'][0]['message']['content']
-    except:
-        return "Neural Link Timeout."
+    except: return "Neural link unstable, sir."
 
-# --- 4. APP INTERFACE ---
-tab1, tab2, tab3 = st.tabs(["GENERAL", "SEARCH", "DEBATE TIME"])
+# --- 3. THE INTERFACE ---
+st.markdown('<div class="jarvis-orb">J.A.R.V.I.S</div>', unsafe_allow_html=True)
+
+tab1, tab2, tab3 = st.tabs(["COMMAND", "INTEL", "DEBATE"])
 
 with tab1:
-    st.markdown("<br>", unsafe_allow_html=True)
-    general_news = get_intel() 
-    if general_news:
-        for a in general_news:
-            st.markdown(f"""
-            <div class="gen-card">
-                <img src="{a['urlToImage']}" class="gen-img">
-                <div class="gen-content">
-                    <small style="color:#05ffa1">{a['source']['name'].upper()}</small><br>
-                    <b style="font-size:18px">{a['title']}</b>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.warning("📡 Scanning for signals... Ensure NEWS_API_KEY is in Secrets.")
+    st.subheader("Neural Command Center")
+    cmd = st.text_input("Awaiting Input...", placeholder="Message [Name] on Instagram / Search Marketplace for [Item]")
+    
+    if cmd:
+        cmd_lower = cmd.lower()
+        
+        # Action: Facebook Marketplace
+        if "marketplace" in cmd_lower:
+            item = cmd_lower.replace("search marketplace for", "").replace("search", "").strip()
+            encoded_item = urllib.parse.quote(item)
+            url = f"https://www.facebook.com/marketplace/search/?query={encoded_item}"
+            st.markdown(f"<div class='system-card'>Scanning Global Markets for: {item.upper()}</div>", unsafe_allow_html=True)
+            st.link_button("OPEN MARKETPLACE", url)
+
+        # Action: Instagram
+        elif "instagram" in cmd_lower or "message" in cmd_lower:
+            st.markdown("<div class='system-card'>Establishing Secure Instagram Uplink...</div>", unsafe_allow_html=True)
+            # This opens the IG app directly to the inbox
+            st.link_button("OPEN INSTAGRAM", "https://www.instagram.com/direct/inbox/")
+
+        # General Assistant
+        else:
+            response = jarvis_brain(cmd, "You are Jarvis. Be polite, concise, and refer to the user as Sir.")
+            st.markdown(f"<div class='system-card'>{response}</div>", unsafe_allow_html=True)
 
 with tab2:
-    s_input = st.text_input("Investigate Subject")
-    if s_input:
-        with st.spinner("Aggregating Intelligence..."):
-            data = get_intel(s_input)
-            context = " ".join([t['title'] for t in data[:15]])
-            report = call_ai(
-                f"Deep-dive report on {s_input}: {context}",
-                "You are an elite analyst. Provide a massive, detailed, multi-paragraph report. No length limits."
-            )
-            st.markdown(f"### 📊 Report: {s_input}")
+    # This is your old 'Search' code integrated
+    s_query = st.text_input("Global Search Protocols")
+    if s_query:
+        with st.spinner("Analyzing News Cycles..."):
+            report = jarvis_brain(f"Search context for {s_query}. Summarize deeply.", "You are Jarvis. Provide a deep-dive intelligence report.")
             st.write(report)
 
 with tab3:
-    fixed_subject = st.text_input("SET SUBJECT")
-    if fixed_subject:
-        if "debate_chat" not in st.session_state: st.session_state.debate_chat = []
-
-        for m in st.session_state.debate_chat:
-            style = "user-box" if m["role"] == "user" else "ai-box"
-            st.markdown(f'<div class="{style}">{m["content"]}</div>', unsafe_allow_html=True)
-
-        user_arg = st.chat_input("Enter Argument")
-        if user_arg:
-            st.session_state.debate_chat.append({"role": "user", "content": user_arg})
-            with st.spinner(""):
-                sys = f"Sharp debater. Subject: {fixed_subject}. Stick to it. 1 paragraph max."
-                ans = call_ai(user_arg, sys)
-                st.session_state.debate_chat.append({"role": "assistant", "content": ans})
-            st.rerun()
+    # This is your 'Debate Time' code integrated
+    subject = st.text_input("Set Logic Parameters (Subject)")
+    if subject:
+        arg = st.chat_input("State your argument...")
+        if arg:
+            rebuttal = jarvis_brain(arg, f"Subject: {subject}. Argue against the user concisely as Jarvis.")
+            st.info(rebuttal)
